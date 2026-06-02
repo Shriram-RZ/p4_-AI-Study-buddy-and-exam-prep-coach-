@@ -10,7 +10,9 @@ class QuizService:
         prompt = QUIZ_PROMPT.format(
             topic=topic, difficulty=difficulty, count=count, quiz_type=quiz_type
         )
-        data = await gemini.generate_json(prompt, temperature=0.5, max_output_tokens=3000)
+        # No explicit token cap — let the client's larger JSON budget apply so
+        # long quizzes (up to 25 questions) aren't truncated mid-array.
+        data = await gemini.generate_json(prompt, temperature=0.5)
         if isinstance(data, dict) and "questions" in data:
             qs = data["questions"]
         elif isinstance(data, list):

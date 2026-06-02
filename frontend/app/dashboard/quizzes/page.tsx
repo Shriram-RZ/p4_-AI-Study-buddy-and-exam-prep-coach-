@@ -23,6 +23,9 @@ export default function QuizzesPage() {
   const [difficulty, setDifficulty] = useState<"easy" | "medium" | "hard">(
     "medium"
   );
+  const [quizType, setQuizType] = useState<
+    "mcq" | "fill" | "theory" | "mixed"
+  >("mcq");
   const [count, setCount] = useState(8);
   const [loading, setLoading] = useState(false);
 
@@ -44,7 +47,7 @@ export default function QuizzesPage() {
         topic,
         difficulty,
         count,
-        type: "mcq",
+        type: quizType,
       });
       setQuiz(q);
       setCurrent(0);
@@ -142,6 +145,33 @@ export default function QuizzesPage() {
                           />
                         </div>
                       </div>
+                      <div>
+                        <label className="text-xs font-medium text-muted-foreground">
+                          Question type
+                        </label>
+                        <div className="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                          {(
+                            [
+                              { k: "mcq", label: "Multiple choice" },
+                              { k: "fill", label: "Fill blank" },
+                              { k: "theory", label: "Short answer" },
+                              { k: "mixed", label: "Mixed" },
+                            ] as const
+                          ).map((t) => (
+                            <button
+                              key={t.k}
+                              onClick={() => setQuizType(t.k)}
+                              className={`rounded-lg border px-2 py-2 text-xs font-medium transition ${
+                                quizType === t.k
+                                  ? "border-brand-500/50 bg-brand-500/10 text-brand-600"
+                                  : "border-border text-muted-foreground hover:text-foreground"
+                              }`}
+                            >
+                              {t.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                       <Button
                         onClick={generate}
                         disabled={loading}
@@ -178,27 +208,35 @@ export default function QuizzesPage() {
                     <Progress value={progress} />
                     <h2 className="mt-6 text-lg font-semibold">{q.question}</h2>
                     <div className="mt-4 space-y-2">
-                      {q.options?.map((opt, i) => {
-                        const picked = answers[q.id] === String(i);
-                        return (
-                          <button
-                            key={i}
-                            onClick={() =>
-                              setAnswers({
-                                ...answers,
-                                [q.id]: String(i),
-                              })
-                            }
-                            className={`w-full rounded-xl border px-4 py-3 text-left text-sm transition ${
-                              picked
-                                ? "border-brand-500 bg-brand-500/10"
-                                : "border-border bg-card hover:border-brand-500/40 hover:bg-accent"
-                            }`}
-                          >
-                            {opt}
-                          </button>
-                        );
-                      })}
+                      {q.type === "mcq" && q.options?.length ? (
+                        q.options.map((opt, i) => {
+                          const picked = answers[q.id] === String(i);
+                          return (
+                            <button
+                              key={i}
+                              onClick={() =>
+                                setAnswers({ ...answers, [q.id]: String(i) })
+                              }
+                              className={`w-full rounded-xl border px-4 py-3 text-left text-sm transition ${
+                                picked
+                                  ? "border-brand-500 bg-brand-500/10"
+                                  : "border-border bg-card hover:border-brand-500/40 hover:bg-accent"
+                              }`}
+                            >
+                              {opt}
+                            </button>
+                          );
+                        })
+                      ) : (
+                        <Input
+                          autoFocus
+                          placeholder="Type your answer…"
+                          value={answers[q.id] ?? ""}
+                          onChange={(e) =>
+                            setAnswers({ ...answers, [q.id]: e.target.value })
+                          }
+                        />
+                      )}
                     </div>
                     <div className="mt-6 flex items-center justify-between">
                       <Button

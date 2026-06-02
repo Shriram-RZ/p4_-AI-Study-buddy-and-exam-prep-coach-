@@ -341,7 +341,9 @@ def submit_quiz(
     weak_topics: dict[str, int] = {}
     for q in questions:
         given = payload.answers.get(str(q.id), "")
-        correct = str(given).strip() == str(q.correct_answer).strip()
+        # Case-insensitive so fill/short answers aren't marked wrong on casing;
+        # MCQ answers are index strings so this is a no-op for them.
+        correct = str(given).strip().lower() == str(q.correct_answer).strip().lower()
         if correct:
             score += 1
         else:

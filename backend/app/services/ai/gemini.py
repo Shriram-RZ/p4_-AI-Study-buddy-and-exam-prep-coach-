@@ -71,6 +71,12 @@ class GeminiError(Exception):
     pass
 
 
+class GeminiRateLimitError(GeminiError):
+    """Raised when Gemini returns 429 after exhausting retries."""
+
+    pass
+
+
 class GeminiClient:
     def __init__(self) -> None:
         self.api_key = settings.gemini_api_key
@@ -142,6 +148,7 @@ class GeminiClient:
                 if r.status_code >= 500:
                     raise GeminiError(f"Gemini server error: {r.status_code}")
                 if r.status_code == 429:
+                    last_err = GeminiRateLimitError("Gemini rate limit (429)")
                     await asyncio.sleep(1.5 * (attempt + 1))
                     continue
                 r.raise_for_status()
@@ -151,11 +158,18 @@ class GeminiClient:
                     raise GeminiError(f"No candidates: {data}")
                 parts = candidates[0].get("content", {}).get("parts", [])
                 return "".join(p.get("text", "") for p in parts).strip()
+            except GeminiRateLimitError as e:
+                last_err = e
+                if attempt >= retries:
+                    break
+                await asyncio.sleep(0.6 * (attempt + 1))
             except Exception as e:
                 last_err = e
                 if attempt >= retries:
                     break
                 await asyncio.sleep(0.6 * (attempt + 1))
+        if isinstance(last_err, GeminiRateLimitError):
+            raise last_err
         raise GeminiError(f"Gemini failed after retries: {last_err}")
 
     async def generate_json(self, prompt: str, **kwargs) -> dict | list:
