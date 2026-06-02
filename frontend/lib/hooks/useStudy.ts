@@ -34,6 +34,36 @@ export function useCreatePlan() {
   });
 }
 
+export function useUpdatePlan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      patch,
+    }: {
+      id: string;
+      patch: { exam_name?: string; archived?: boolean };
+    }) => studyApi.updatePlan(id, patch),
+    onSuccess: () => qc.invalidateQueries({ queryKey: studyKeys.plans }),
+  });
+}
+
+export function useDuplicatePlan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => studyApi.duplicatePlan(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: studyKeys.plans }),
+  });
+}
+
+export function useDeletePlan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => studyApi.deletePlan(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: studyKeys.plans }),
+  });
+}
+
 /** Cached progress snapshot. */
 export function useProgress() {
   return useQuery({

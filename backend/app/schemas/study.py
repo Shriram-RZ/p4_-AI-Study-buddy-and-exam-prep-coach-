@@ -19,6 +19,12 @@ class StudyPlanCreate(BaseModel):
     daily_hours: float = Field(ge=0.5, le=14)
     syllabus: str = Field(min_length=10)
     weak_topics: list[str] = []
+    granularity: Literal["daily", "weekly", "monthly"] = "daily"
+
+
+class PlanUpdate(BaseModel):
+    exam_name: str | None = Field(default=None, min_length=1, max_length=180)
+    archived: bool | None = None
 
 
 class StudyPlanOut(BaseModel):

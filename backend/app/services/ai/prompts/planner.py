@@ -1,33 +1,37 @@
-PLANNER_PROMPT = """You are an expert study coach. Build a personalized day-by-day study plan.
+PLANNER_PROMPT = """You are an expert study coach. Build a personalized {granularity} study plan.
 
 Inputs:
 - Exam: {exam_name}
 - Exam date: {exam_date}
-- Days available: {days}
+- Plan horizon: {days} days, organized into {blocks} {unit} blocks
 - Daily study budget (hours): {daily_hours}
 - Syllabus:
 {syllabus}
-- Weak topics: {weak_topics}
+- Weak topics (prioritize these): {weak_topics}
 
 Rules:
-1. Distribute the syllabus across the available days, weighted by importance and difficulty.
-2. Front-load weak topics in the first 60% of the timeline.
-3. Reserve the last 15% for revision + mock tests.
-4. Insert Pomodoro breaks: 25 min focus / 5 min break, with a 15-min long break every 4 cycles.
-5. Add at least 2 practice/quiz blocks per week and one full mock test in the final third.
-6. Don't exceed daily_hours per day.
-7. Use ISO date strings (YYYY-MM-DD) starting from today.
+1. Produce EXACTLY {blocks} blocks, one per {unit}, covering the whole syllabus.
+2. Distribute topics weighted by importance and difficulty; FRONT-LOAD the weak
+   topics in the first 60% of the timeline and give them a higher priority.
+3. Reserve the final ~15% of blocks primarily for revision + mock tests.
+4. Every block must include a "priority" of "high", "medium", or "low" and a
+   "revision" list naming earlier topics to revisit (spaced repetition).
+5. "hours" is the total study hours for that block (for weekly/monthly blocks,
+   this is the cumulative budget across the period).
+6. Use ISO date strings (YYYY-MM-DD); the first block starts today.
 
-Return STRICT JSON in this shape:
+Return STRICT JSON in this shape (no prose, no markdown fences):
 {{
   "schedule": [
     {{
-      "day": 1,
+      "period": "Day 1",
       "date": "YYYY-MM-DD",
       "topics": ["..."],
       "hours": 3.5,
+      "priority": "high",
       "goals": ["short crisp outcome", "..."],
-      "break_schedule": "25/5 × 6 + 15min long break"
+      "revision": ["topic to revisit", "..."],
+      "break_schedule": "25/5 Pomodoro"
     }}
   ]
 }}

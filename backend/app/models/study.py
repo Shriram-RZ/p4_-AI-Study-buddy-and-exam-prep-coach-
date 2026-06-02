@@ -52,6 +52,8 @@ class StudyPlan(Base):
     syllabus: Mapped[str] = mapped_column(Text)
     weak_topics: Mapped[list] = mapped_column(JSONB, default=list)
     schedule: Mapped[list] = mapped_column(JSONB, default=list)
+    granularity: Mapped[str] = mapped_column(String(16), default="daily")
+    archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

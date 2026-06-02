@@ -21,6 +21,7 @@ from app.schemas.study import (
     FlashcardGenerate,
     FlashcardOut,
     FlashcardReview,
+    PlanUpdate,
     QuizGenerateRequest,
     QuizOut,
     QuizResultOut,
@@ -42,6 +43,20 @@ router = APIRouter()
 
 
 # ---------- Study plans ----------
+def _plan_dict(p: StudyPlan) -> dict:
+    return {
+        "id": p.id,
+        "exam_name": p.exam_name,
+        "exam_date": p.exam_date.date(),
+        "daily_hours": p.daily_hours,
+        "syllabus": p.syllabus,
+        "schedule": p.schedule,
+        "granularity": p.granularity,
+        "archived": p.archived,
+        "created_at": p.created_at,
+    }
+
+
 @router.post("/plans")
 async def create_plan(
     payload: StudyPlanCreate, current: CurrentUser, db: DbDep
@@ -52,6 +67,7 @@ async def create_plan(
         daily_hours=payload.daily_hours,
         syllabus=payload.syllabus,
         weak_topics=payload.weak_topics,
+        granularity=payload.granularity,
     )
     plan = StudyPlan(
         user_id=current.id,
@@ -63,60 +79,86 @@ async def create_plan(
         syllabus=payload.syllabus,
         weak_topics=payload.weak_topics,
         schedule=schedule,
+        granularity=payload.granularity,
     )
     db.add(plan)
     db.flush()
+    unit = {"daily": "day", "weekly": "week", "monthly": "month"}.get(
+        payload.granularity, "block"
+    )
     engagement.record_event(
         db,
         current.id,
         action="plan_generated",
         category="planner",
         title=f"Study plan ready: {plan.exam_name}",
-        summary=f"Generated a {len(schedule)}-day plan for {plan.exam_name}",
-        body=f"{len(schedule)} days · {payload.daily_hours}h/day. Weak areas prioritized.",
+        summary=f"Generated a {len(schedule)}-{unit} plan for {plan.exam_name}",
+        body=f"{len(schedule)} {unit} blocks · {payload.daily_hours}h/day. Weak areas prioritized.",
         link="/dashboard/planner",
         entity_type="study_plan",
         entity_id=plan.id,
     )
     db.commit()
     db.refresh(plan)
-    return {
-        "plan": {
-            "id": plan.id,
-            "exam_name": plan.exam_name,
-            "exam_date": plan.exam_date.date(),
-            "daily_hours": plan.daily_hours,
-            "syllabus": plan.syllabus,
-            "schedule": plan.schedule,
-            "created_at": plan.created_at,
-        }
-    }
+    return {"plan": _plan_dict(plan)}
 
 
 @router.get("/plans")
-def list_plans(current: CurrentUser, db: DbDep):
-    plans = (
-        db.scalars(
-            select(StudyPlan)
-            .where(StudyPlan.user_id == current.id)
-            .order_by(StudyPlan.created_at.desc())
-        )
-        .all()
+def list_plans(
+    current: CurrentUser, db: DbDep, include_archived: bool = False
+):
+    stmt = select(StudyPlan).where(StudyPlan.user_id == current.id)
+    if not include_archived:
+        stmt = stmt.where(StudyPlan.archived.is_(False))
+    plans = db.scalars(stmt.order_by(StudyPlan.created_at.desc())).all()
+    return {"plans": [_plan_dict(p) for p in plans]}
+
+
+@router.patch("/plans/{plan_id}")
+def update_plan(
+    plan_id: uuid.UUID, payload: PlanUpdate, current: CurrentUser, db: DbDep
+):
+    plan = db.get(StudyPlan, plan_id)
+    if not plan or plan.user_id != current.id:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    if payload.exam_name is not None:
+        plan.exam_name = payload.exam_name
+    if payload.archived is not None:
+        plan.archived = payload.archived
+    db.commit()
+    db.refresh(plan)
+    return {"plan": _plan_dict(plan)}
+
+
+@router.post("/plans/{plan_id}/duplicate")
+def duplicate_plan(plan_id: uuid.UUID, current: CurrentUser, db: DbDep):
+    src = db.get(StudyPlan, plan_id)
+    if not src or src.user_id != current.id:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    copy = StudyPlan(
+        user_id=current.id,
+        exam_name=f"{src.exam_name} (copy)",
+        exam_date=src.exam_date,
+        daily_hours=src.daily_hours,
+        syllabus=src.syllabus,
+        weak_topics=src.weak_topics,
+        schedule=src.schedule,
+        granularity=src.granularity,
     )
-    return {
-        "plans": [
-            {
-                "id": p.id,
-                "exam_name": p.exam_name,
-                "exam_date": p.exam_date.date(),
-                "daily_hours": p.daily_hours,
-                "syllabus": p.syllabus,
-                "schedule": p.schedule,
-                "created_at": p.created_at,
-            }
-            for p in plans
-        ]
-    }
+    db.add(copy)
+    db.commit()
+    db.refresh(copy)
+    return {"plan": _plan_dict(copy)}
+
+
+@router.delete("/plans/{plan_id}", status_code=204)
+def delete_plan(plan_id: uuid.UUID, current: CurrentUser, db: DbDep):
+    plan = db.get(StudyPlan, plan_id)
+    if not plan or plan.user_id != current.id:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    db.delete(plan)
+    db.commit()
+    return None
 
 
 # ---------- Notes summarization ----------

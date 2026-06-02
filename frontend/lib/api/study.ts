@@ -1,5 +1,11 @@
 import { api } from "./client";
-import type { StudyPlan, Quiz, Flashcard, ChatMessage } from "@/lib/types";
+import type {
+  StudyPlan,
+  Quiz,
+  Flashcard,
+  ChatMessage,
+  PlanGranularity,
+} from "@/lib/types";
 
 export const studyApi = {
   // Study Planner
@@ -9,6 +15,7 @@ export const studyApi = {
     daily_hours: number;
     syllabus: string;
     weak_topics?: string[];
+    granularity?: PlanGranularity;
   }) => {
     const r = await api.post<{ plan: StudyPlan }>(
       "/api/study/plans",
@@ -16,9 +23,30 @@ export const studyApi = {
     );
     return r.data.plan;
   },
-  listPlans: async () => {
-    const r = await api.get<{ plans: StudyPlan[] }>("/api/study/plans");
+  listPlans: async (includeArchived = false) => {
+    const r = await api.get<{ plans: StudyPlan[] }>("/api/study/plans", {
+      params: { include_archived: includeArchived || undefined },
+    });
     return r.data.plans;
+  },
+  updatePlan: async (
+    id: string,
+    patch: { exam_name?: string; archived?: boolean }
+  ) => {
+    const r = await api.patch<{ plan: StudyPlan }>(
+      `/api/study/plans/${id}`,
+      patch
+    );
+    return r.data.plan;
+  },
+  duplicatePlan: async (id: string) => {
+    const r = await api.post<{ plan: StudyPlan }>(
+      `/api/study/plans/${id}/duplicate`
+    );
+    return r.data.plan;
+  },
+  deletePlan: async (id: string) => {
+    await api.delete(`/api/study/plans/${id}`);
   },
 
   // Notes Summarizer

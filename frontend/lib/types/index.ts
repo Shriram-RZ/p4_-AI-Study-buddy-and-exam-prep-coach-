@@ -8,6 +8,8 @@ export interface User {
   created_at: string;
 }
 
+export type PlanGranularity = "daily" | "weekly" | "monthly";
+
 export interface StudyPlan {
   id: string;
   exam_name: string;
@@ -15,15 +17,20 @@ export interface StudyPlan {
   daily_hours: number;
   syllabus: string;
   schedule: ScheduleDay[];
+  granularity: PlanGranularity;
+  archived: boolean;
   created_at: string;
 }
 
 export interface ScheduleDay {
   day: number;
+  period?: string;
   date: string;
   topics: string[];
   hours: number;
+  priority?: "high" | "medium" | "low";
   goals: string[];
+  revision?: string[];
   break_schedule?: string;
 }
 
