@@ -101,6 +101,10 @@ export const studyApi = {
   },
 
   // AI Tutor
+  chatHistory: async () => {
+    const r = await api.get<ChatMessage[]>("/api/tutor/history");
+    return r.data;
+  },
   chat: async (message: string, history: ChatMessage[] = []) => {
     const r = await api.post<{ reply: string; message_id: string }>(
       "/api/tutor/chat",
