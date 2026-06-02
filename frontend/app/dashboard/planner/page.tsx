@@ -12,8 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { studyApi } from "@/lib/api/study";
-import type { StudyPlan } from "@/lib/types";
+import { usePlans, useCreatePlan } from "@/lib/hooks/useStudy";
 import { apiError } from "@/lib/api/client";
 
 export default function PlannerPage() {
@@ -24,14 +23,19 @@ export default function PlannerPage() {
     syllabus: "",
     weak_topics: "",
   });
-  const [loading, setLoading] = useState(false);
-  const [plan, setPlan] = useState<StudyPlan | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const { data: plans = [] } = usePlans();
+  const createPlan = useCreatePlan();
+
+  // Show the explicitly selected plan, else the most recent saved one.
+  const plan = plans.find((p) => p.id === selectedId) ?? plans[0] ?? null;
+  const loading = createPlan.isPending;
 
   const generate = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
     try {
-      const p = await studyApi.createPlan({
+      const p = await createPlan.mutateAsync({
         exam_name: form.exam_name,
         exam_date: form.exam_date,
         daily_hours: Number(form.daily_hours),
@@ -41,12 +45,10 @@ export default function PlannerPage() {
           .map((t) => t.trim())
           .filter(Boolean),
       });
-      setPlan(p);
+      setSelectedId(p.id);
       toast.success("Study plan generated!");
     } catch (err) {
       toast.error(apiError(err, "Could not generate plan"));
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -177,6 +179,23 @@ export default function PlannerPage() {
           </Card>
 
           <div className="lg:col-span-3">
+            {plans.length > 0 && (
+              <div className="mb-3 flex flex-wrap gap-2">
+                {plans.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => setSelectedId(p.id)}
+                    className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                      plan?.id === p.id
+                        ? "border-brand-500/40 bg-brand-500/10 text-brand-600"
+                        : "border-border text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {p.exam_name}
+                  </button>
+                ))}
+              </div>
+            )}
             {plan ? (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}

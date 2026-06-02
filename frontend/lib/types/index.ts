@@ -66,3 +66,34 @@ export interface WeakArea {
   last_practiced: string;
   recommended_action: string;
 }
+
+export type NotificationCategory =
+  | "quiz"
+  | "planner"
+  | "flashcards"
+  | "notes"
+  | "tutor"
+  | "mock"
+  | "system";
+
+export interface AppNotification {
+  id: string;
+  type: string;
+  category: NotificationCategory;
+  title: string;
+  body?: string | null;
+  link?: string | null;
+  read: boolean;
+  meta: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface ActivityItem {
+  id: string;
+  action: string;
+  summary: string;
+  entity_type?: string | null;
+  entity_id?: string | null;
+  meta: Record<string, unknown>;
+  created_at: string;
+}

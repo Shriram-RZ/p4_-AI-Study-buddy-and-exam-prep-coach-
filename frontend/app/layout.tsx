@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "katex/dist/katex.min.css";
 import { Toaster } from "react-hot-toast";
+import { QueryProvider } from "@/components/providers/QueryProvider";
 
 export const metadata: Metadata = {
   title: "AI Study Buddy — Your Personal AI Study Coach",
@@ -30,7 +32,9 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body>
-        <div className="relative">{children}</div>
+        <QueryProvider>
+          <div className="relative">{children}</div>
+        </QueryProvider>
         <Toaster
           position="top-right"
           toastOptions={{

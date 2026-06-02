@@ -4,13 +4,53 @@ from typing import AsyncIterator
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
+from sqlalchemy import func, select
 
 from app.api.deps import CurrentUser, DbDep
 from app.models.study import ChatHistory
 from app.schemas.study import ChatRequest, ChatResponse
 from app.services.ai import TutorService, GeminiError
+from app.services import engagement
 
 router = APIRouter()
+
+# Notify the learner when they hit these cumulative tutor-message counts.
+_TUTOR_MILESTONES = {10, 25, 50, 100, 250}
+
+
+def _record_tutor_exchange(db, user_id, question: str) -> None:
+    """Log the tutoring activity and raise a milestone notification when the
+    user crosses a meaningful number of total tutor exchanges."""
+    engagement.log_activity(
+        db,
+        user_id,
+        action="tutor_session",
+        summary=f"Asked the AI tutor: {question[:80]}",
+        entity_type="tutor",
+    )
+    prior = (
+        db.scalar(
+            select(func.count())
+            .select_from(ChatHistory)
+            .where(
+                ChatHistory.user_id == user_id,
+                ChatHistory.role == "assistant",
+            )
+        )
+        or 0
+    )
+    total = prior + 1
+    if total in _TUTOR_MILESTONES:
+        engagement.push_notification(
+            db,
+            user_id,
+            type="tutor_milestone",
+            category="tutor",
+            title=f"Tutoring milestone: {total} questions",
+            body=f"You've asked the AI tutor {total} questions. Keep the momentum going!",
+            link="/dashboard/tutor",
+            meta={"count": total},
+        )
 
 
 def _hist_for_model(history: list) -> list[dict]:
@@ -33,6 +73,7 @@ async def chat(payload: ChatRequest, current: CurrentUser, db: DbDep):
 
     db.add(ChatHistory(user_id=current.id, role="user", content=payload.message))
     db.add(ChatHistory(user_id=current.id, role="assistant", content=reply))
+    _record_tutor_exchange(db, current.id, payload.message)
     db.commit()
     return {"reply": reply, "message_id": str(uuid.uuid4())}
 
@@ -61,6 +102,7 @@ async def chat_stream(payload: ChatRequest, current: CurrentUser, db: DbDep):
                     user_id=current.id, role="assistant", content="".join(full)
                 )
             )
+            _record_tutor_exchange(db, current.id, payload.message)
             db.commit()
         except Exception:
             db.rollback()

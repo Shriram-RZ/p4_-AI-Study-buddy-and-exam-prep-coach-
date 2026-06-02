@@ -36,6 +36,7 @@ from app.services.ai import (
     QuizService,
     SummarizerService,
 )
+from app.services import engagement
 
 router = APIRouter()
 
@@ -64,6 +65,19 @@ async def create_plan(
         schedule=schedule,
     )
     db.add(plan)
+    db.flush()
+    engagement.record_event(
+        db,
+        current.id,
+        action="plan_generated",
+        category="planner",
+        title=f"Study plan ready: {plan.exam_name}",
+        summary=f"Generated a {len(schedule)}-day plan for {plan.exam_name}",
+        body=f"{len(schedule)} days · {payload.daily_hours}h/day. Weak areas prioritized.",
+        link="/dashboard/planner",
+        entity_type="study_plan",
+        entity_id=plan.id,
+    )
     db.commit()
     db.refresh(plan)
     return {
@@ -118,6 +132,16 @@ async def summarize_text(
             key_points=result["key_points"],
         )
     )
+    engagement.record_event(
+        db,
+        current.id,
+        action="summary_completed",
+        category="notes",
+        title="Summary ready",
+        summary="Summarized pasted notes",
+        body=f"{len(result.get('key_points', []))} key points extracted.",
+        link="/dashboard/notes",
+    )
     db.commit()
     return result
 
@@ -158,6 +182,18 @@ async def upload_note(
             summary=result["summary"],
             key_points=result["key_points"],
         )
+    )
+    engagement.record_event(
+        db,
+        current.id,
+        action="summary_completed",
+        category="notes",
+        title=f"Summary ready: {name}",
+        summary=f"Summarized uploaded note “{name}”",
+        body=f"{len(result.get('key_points', []))} key points extracted.",
+        link="/dashboard/notes",
+        entity_type="uploaded_note",
+        entity_id=note.id,
     )
     db.commit()
     return result
@@ -201,6 +237,18 @@ async def generate_quiz(
             )
         )
     db.add_all(questions)
+    engagement.record_event(
+        db,
+        current.id,
+        action="quiz_generated",
+        category="quiz",
+        title=f"Quiz ready: {quiz.topic}",
+        summary=f"Generated a {len(questions)}-question {payload.difficulty} quiz on {quiz.topic}",
+        body=f"{len(questions)} questions · {payload.difficulty} · {payload.type}",
+        link="/dashboard/quizzes",
+        entity_type="quiz",
+        entity_id=quiz.id,
+    )
     db.commit()
     for q in questions:
         db.refresh(q)
@@ -296,11 +344,31 @@ def submit_quiz(
                 )
             )
 
+    total = len(questions)
+    pct = round((score / total) * 100) if total else 0
+    weak_list = list(weak_topics.keys())
+    body = f"You scored {score}/{total} ({pct}%)."
+    if weak_list:
+        body += f" Weak areas: {', '.join(weak_list[:3])}."
+    engagement.record_event(
+        db,
+        current.id,
+        action="quiz_completed",
+        category="quiz",
+        title=f"Quiz scored: {pct}% on {quiz.topic}",
+        summary=f"Completed quiz on {quiz.topic} — {score}/{total} ({pct}%)",
+        body=body,
+        link="/dashboard/quizzes",
+        entity_type="quiz",
+        entity_id=quiz.id,
+        meta={"score": score, "total": total, "pct": pct, "weak": weak_list},
+    )
+
     db.commit()
     return {
         "score": score,
-        "total": len(questions),
-        "weak_topics": list(weak_topics.keys()),
+        "total": total,
+        "weak_topics": weak_list,
         "review": review,
     }
 
@@ -326,6 +394,16 @@ async def generate_flashcards(
             )
         )
     db.add_all(rows)
+    engagement.record_event(
+        db,
+        current.id,
+        action="flashcards_ready",
+        category="flashcards",
+        title=f"{len(rows)} flashcards ready: {payload.topic}",
+        summary=f"Generated {len(rows)} flashcards on {payload.topic}",
+        body="Your review session is ready. Start now to lock it into memory.",
+        link="/dashboard/flashcards",
+    )
     db.commit()
     for r in rows:
         db.refresh(r)
@@ -372,6 +450,29 @@ def review_flashcard(
             1.3, card.ease + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02))
         )
     card.next_review = datetime.now(timezone.utc) + timedelta(days=card.interval_days)
+
+    quality_label = {0: "Again", 1: "Again", 2: "Hard", 3: "Good", 4: "Good", 5: "Easy"}.get(q, "Good")
+    engagement.log_activity(
+        db,
+        current.id,
+        action="flashcards_reviewed",
+        summary=f"Reviewed a {card.topic} flashcard ({quality_label})",
+        entity_type="flashcard",
+        entity_id=card.id,
+        meta={"quality": q, "interval_days": card.interval_days},
+    )
+    # Celebrate when a card crosses into long-term retention.
+    if card.repetitions >= 5 or card.interval_days >= 21:
+        engagement.push_notification(
+            db,
+            current.id,
+            type="streak_increased",
+            category="flashcards",
+            title=f"Card mastered: {card.topic}",
+            body="You've locked this card into long-term memory. 🎉",
+            link="/dashboard/flashcards",
+        )
+
     db.commit()
     return None
 

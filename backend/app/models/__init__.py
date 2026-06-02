@@ -14,6 +14,7 @@ from app.models.study import (
     RevisionSchedule,
     ExamGoal,
 )
+from app.models.engagement import Notification, ActivityLog
 
 __all__ = [
     "User",
@@ -31,4 +32,6 @@ __all__ = [
     "ProgressTracking",
     "RevisionSchedule",
     "ExamGoal",
+    "Notification",
+    "ActivityLog",
 ]

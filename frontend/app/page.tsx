@@ -7,7 +7,6 @@ import { QuizDemo } from "@/components/landing/QuizDemo";
 import { TutorDemo } from "@/components/landing/TutorDemo";
 import { ProgressDashboard } from "@/components/landing/ProgressDashboard";
 import { Testimonials } from "@/components/landing/Testimonials";
-import { Pricing } from "@/components/landing/Pricing";
 import { FAQ } from "@/components/landing/FAQ";
 import { Footer } from "@/components/landing/Footer";
 
@@ -23,7 +22,6 @@ export default function HomePage() {
       <TutorDemo />
       <ProgressDashboard />
       <Testimonials />
-      <Pricing />
       <FAQ />
       <Footer />
     </main>

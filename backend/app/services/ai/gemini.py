@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+import re
 from typing import AsyncIterator, Iterable
 
 import httpx
@@ -9,6 +10,61 @@ import httpx
 from app.core.config import settings
 
 log = logging.getLogger(__name__)
+
+
+def _coerce_json(text: str):
+    """Best-effort parse of model output into JSON.
+
+    LLMs occasionally wrap JSON in markdown fences, add trailing commas, or get
+    truncated mid-object. We try a series of increasingly aggressive repairs and
+    return the first that parses, so a slightly-malformed response still yields
+    a usable plan/quiz instead of a 500.
+    """
+    # 1) As-is.
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    s = text.strip()
+
+    # 2) Strip ```json ... ``` fences.
+    if s.startswith("```"):
+        s = re.sub(r"^```(?:json)?\s*", "", s)
+        s = re.sub(r"\s*```$", "", s).strip()
+
+    # 3) Slice to the outermost JSON object/array.
+    starts = [i for i in (s.find("{"), s.find("[")) if i != -1]
+    if starts:
+        start = min(starts)
+        end = max(s.rfind("}"), s.rfind("]"))
+        if end > start:
+            s = s[start : end + 1]
+
+    candidates = [s]
+    # 4) Drop trailing commas before } or ].
+    candidates.append(re.sub(r",(\s*[}\]])", r"\1", s))
+    # 5) Repair truncation: close any unterminated string, then balance
+    #    brackets in reverse open order.
+    repaired = s
+    if repaired.count('"') % 2 == 1:
+        repaired += '"'
+    stack: list[str] = []
+    for ch in repaired:
+        if ch in "{[":
+            stack.append("}" if ch == "{" else "]")
+        elif ch in "}]" and stack and stack[-1] == ch:
+            stack.pop()
+    repaired = re.sub(r",(\s*$)", r"\1", repaired.rstrip().rstrip(","))
+    repaired += "".join(reversed(stack))
+    candidates.append(repaired)
+
+    for cand in candidates:
+        try:
+            return json.loads(cand)
+        except json.JSONDecodeError:
+            continue
+    raise json.JSONDecodeError("Unrepairable JSON", text, 0)
 
 
 class GeminiError(Exception):
@@ -103,19 +159,14 @@ class GeminiClient:
         raise GeminiError(f"Gemini failed after retries: {last_err}")
 
     async def generate_json(self, prompt: str, **kwargs) -> dict | list:
+        # Give JSON responses a larger budget so structured output (multi-day
+        # plans, long quizzes) doesn't get truncated mid-object.
+        kwargs.setdefault("max_output_tokens", 8192)
         text = await self.generate(prompt, json_mode=True, **kwargs)
         try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            cleaned = text.strip()
-            if cleaned.startswith("```"):
-                cleaned = cleaned.strip("`")
-                if cleaned.startswith("json"):
-                    cleaned = cleaned[4:]
-            try:
-                return json.loads(cleaned.strip())
-            except Exception as e:
-                raise GeminiError(f"Bad JSON from model: {e} :: {text[:300]}")
+            return _coerce_json(text)
+        except json.JSONDecodeError as e:
+            raise GeminiError(f"Bad JSON from model: {e} :: {text[:300]}")
 
     async def stream(
         self,
