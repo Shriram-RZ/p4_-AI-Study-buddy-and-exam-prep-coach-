@@ -97,6 +97,20 @@ export interface WeakAreaDetail {
   recommended_action: string;
 }
 
+export interface Analytics {
+  summary: {
+    streak: number;
+    productivity: number;
+    quizzes_taken: number;
+    avg_accuracy: number;
+    total_activities: number;
+    mastered_cards: number;
+  };
+  quiz_accuracy: { date: string; accuracy: number }[];
+  daily: { date: string; activities: number; reviews: number }[];
+  topic_mastery: { topic: string; mastery: number }[];
+}
+
 export type NotificationCategory =
   | "quiz"
   | "planner"

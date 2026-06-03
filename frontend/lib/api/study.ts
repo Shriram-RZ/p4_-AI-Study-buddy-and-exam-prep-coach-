@@ -7,6 +7,7 @@ import type {
   ChatMessage,
   PlanGranularity,
   WeakAreaDetail,
+  Analytics,
 } from "@/lib/types";
 
 export const studyApi = {
@@ -171,6 +172,12 @@ export const studyApi = {
       })
       .catch(onError);
     return () => ctrl.abort();
+  },
+
+  // Analytics
+  analytics: async () => {
+    const r = await api.get<Analytics>("/api/study/analytics");
+    return r.data;
   },
 
   // Weak areas

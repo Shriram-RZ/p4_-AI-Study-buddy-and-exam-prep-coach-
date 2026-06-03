@@ -18,6 +18,7 @@ from app.models.study import (
     AISummary,
     WeakArea,
 )
+from app.models.engagement import ActivityLog
 from app.schemas.study import (
     FlashcardGenerate,
     FlashcardOut,
@@ -658,4 +659,87 @@ def get_progress(current: CurrentUser, db: DbDep):
         "productivity": current.productivity_score,
         "weekly": [],
         "weak_areas": [{"topic": w.topic, "score": w.score} for w in weak],
+    }
+
+
+@router.get("/analytics")
+def get_analytics(current: CurrentUser, db: DbDep):
+    now = datetime.now(timezone.utc)
+    today = now.date()
+
+    # Quiz accuracy trend (chronological, last 20 attempts).
+    results = db.scalars(
+        select(QuizResult)
+        .where(QuizResult.user_id == current.id)
+        .order_by(QuizResult.created_at.asc())
+    ).all()
+    quiz_accuracy = [
+        {
+            "date": r.created_at.date().isoformat(),
+            "accuracy": round((r.score / r.total) * 100) if r.total else 0,
+        }
+        for r in results[-20:]
+    ]
+    avg_accuracy = (
+        round(sum(q["accuracy"] for q in quiz_accuracy) / len(quiz_accuracy))
+        if quiz_accuracy
+        else 0
+    )
+
+    # Daily activity + daily reviews for the last 14 days.
+    activities = db.scalars(
+        select(ActivityLog).where(ActivityLog.user_id == current.id)
+    ).all()
+    reviews = db.scalars(
+        select(FlashcardReviewLog).where(
+            FlashcardReviewLog.user_id == current.id
+        )
+    ).all()
+    daily = []
+    for i in range(13, -1, -1):
+        d = today - timedelta(days=i)
+        daily.append(
+            {
+                "date": d.isoformat(),
+                "activities": sum(
+                    1 for a in activities if a.created_at.date() == d
+                ),
+                "reviews": sum(
+                    1 for r in reviews if r.reviewed_at.date() == d
+                ),
+            }
+        )
+
+    # Topic mastery from tracked weak areas (score == mastery %).
+    weak = db.scalars(
+        select(WeakArea)
+        .where(WeakArea.user_id == current.id)
+        .order_by(WeakArea.score.asc())
+        .limit(8)
+    ).all()
+    topic_mastery = [
+        {"topic": w.topic, "mastery": round(w.score)} for w in weak
+    ]
+
+    mastered_cards = db.scalar(
+        select(func.count())
+        .select_from(Flashcard)
+        .where(
+            Flashcard.user_id == current.id,
+            Flashcard.repetitions >= 5,
+        )
+    )
+
+    return {
+        "summary": {
+            "streak": current.streak,
+            "productivity": current.productivity_score,
+            "quizzes_taken": len(results),
+            "avg_accuracy": avg_accuracy,
+            "total_activities": len(activities),
+            "mastered_cards": int(mastered_cards or 0),
+        },
+        "quiz_accuracy": quiz_accuracy,
+        "daily": daily,
+        "topic_mastery": topic_mastery,
     }

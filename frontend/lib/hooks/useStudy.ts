@@ -17,6 +17,13 @@ export function useWeakAreas() {
   });
 }
 
+export function useAnalytics() {
+  return useQuery({
+    queryKey: ["study", "analytics"],
+    queryFn: () => studyApi.analytics(),
+  });
+}
+
 /** Cached list of the user's saved study plans. Cached so navigating away and
  *  back to the planner is instant and the data survives the tab switch. */
 export function usePlans() {
