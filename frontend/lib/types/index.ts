@@ -88,6 +88,15 @@ export interface WeakArea {
   recommended_action: string;
 }
 
+export interface WeakAreaDetail {
+  topic: string;
+  score: number;
+  severity: "critical" | "high" | "moderate";
+  suggested_minutes: number;
+  last_practiced: string;
+  recommended_action: string;
+}
+
 export type NotificationCategory =
   | "quiz"
   | "planner"

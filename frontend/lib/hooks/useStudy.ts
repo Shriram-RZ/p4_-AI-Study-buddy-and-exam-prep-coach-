@@ -7,7 +7,15 @@ import { notificationKeys } from "./useNotifications";
 export const studyKeys = {
   plans: ["study", "plans"] as const,
   progress: ["study", "progress"] as const,
+  weakAreas: ["study", "weak-areas"] as const,
 };
+
+export function useWeakAreas() {
+  return useQuery({
+    queryKey: studyKeys.weakAreas,
+    queryFn: () => studyApi.weakAreas(),
+  });
+}
 
 /** Cached list of the user's saved study plans. Cached so navigating away and
  *  back to the planner is instant and the data survives the tab switch. */

@@ -6,6 +6,7 @@ import type {
   FlashcardStats,
   ChatMessage,
   PlanGranularity,
+  WeakAreaDetail,
 } from "@/lib/types";
 
 export const studyApi = {
@@ -170,6 +171,14 @@ export const studyApi = {
       })
       .catch(onError);
     return () => ctrl.abort();
+  },
+
+  // Weak areas
+  weakAreas: async () => {
+    const r = await api.get<{ weak_areas: WeakAreaDetail[] }>(
+      "/api/study/weak-areas"
+    );
+    return r.data.weak_areas;
   },
 
   // Progress

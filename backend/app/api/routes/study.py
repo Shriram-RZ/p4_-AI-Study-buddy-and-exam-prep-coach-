@@ -609,6 +609,38 @@ def review_flashcard(
     return None
 
 
+# ---------- Weak areas ----------
+@router.get("/weak-areas")
+def list_weak_areas(current: CurrentUser, db: DbDep):
+    rows = db.scalars(
+        select(WeakArea)
+        .where(WeakArea.user_id == current.id)
+        .order_by(WeakArea.score.asc())
+    ).all()
+
+    out = []
+    for w in rows:
+        score = round(w.score)
+        if score < 45:
+            severity, minutes = "critical", 45
+        elif score < 65:
+            severity, minutes = "high", 30
+        else:
+            severity, minutes = "moderate", 20
+        out.append(
+            {
+                "topic": w.topic,
+                "score": score,
+                "severity": severity,
+                "suggested_minutes": minutes,
+                "last_practiced": w.last_practiced,
+                "recommended_action": w.recommended_action
+                or f"Run a focused {w.topic} practice round",
+            }
+        )
+    return {"weak_areas": out}
+
+
 # ---------- Progress ----------
 @router.get("/progress")
 def get_progress(current: CurrentUser, db: DbDep):
