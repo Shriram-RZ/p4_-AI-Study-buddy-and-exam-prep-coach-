@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import String, DateTime, Integer, ForeignKey, Boolean, func
+from sqlalchemy import String, DateTime, Integer, ForeignKey, Boolean, Float, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 
 from app.db.session import Base
 
@@ -21,6 +21,18 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     name: Mapped[str] = mapped_column(String(120))
     education_level: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    avatar_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    daily_study_hours: Mapped[float] = mapped_column(Float, default=3.0)
+    exam_target: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    notification_preferences: Mapped[dict] = mapped_column(
+        JSONB,
+        default=lambda: {
+            "quiz": True,
+            "revision": True,
+            "flashcards": True,
+            "tutor": True,
+        },
+    )
     streak: Mapped[int] = mapped_column(Integer, default=0)
     productivity_score: Mapped[int] = mapped_column(Integer, default=70)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

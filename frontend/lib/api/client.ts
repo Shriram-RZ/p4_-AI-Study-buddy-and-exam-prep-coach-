@@ -11,7 +11,7 @@ export const api: AxiosInstance = axios.create({
 
 api.interceptors.response.use(
   (res) => res,
-  (err: AxiosError<{ detail?: string }>) => {
+  (err: AxiosError<{ detail?: unknown }>) => {
     if (err.response?.status === 401 && typeof window !== "undefined") {
       const path = window.location.pathname;
       if (path.startsWith("/dashboard")) {
@@ -31,7 +31,10 @@ export function formatApiDetail(detail: unknown, fallback: string): string {
         if (typeof item === "string") return item;
         if (item && typeof item === "object" && "msg" in item) {
           const loc = Array.isArray((item as { loc?: unknown }).loc)
-            ? (item as { loc: unknown[] }).loc.filter(Boolean).join(".")
+            ? (item as { loc: unknown[] }).loc
+                .filter((part) => part !== "body")
+                .filter(Boolean)
+                .join(".")
             : "";
           const msg = String((item as { msg: unknown }).msg);
           return loc ? `${loc}: ${msg}` : msg;
