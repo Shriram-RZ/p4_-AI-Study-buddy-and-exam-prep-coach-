@@ -22,8 +22,8 @@ const faqs = [
     a: "Your notes and uploads are stored encrypted, scoped to your account, and never used to train external models.",
   },
   {
-    q: "Can I cancel anytime?",
-    a: "Yes — Pro is month-to-month. Cancel from Settings and you keep access through the end of your billing period.",
+    q: "Can the AI quiz me and track my weak areas?",
+    a: "Yes. The Quiz Generator creates fresh questions at adaptive difficulty, scores you instantly, and automatically logs weak topics so your planner and revision schedule can prioritize them.",
   },
 ];
 

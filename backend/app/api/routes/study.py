@@ -2,13 +2,15 @@ import io
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from pypdf import PdfReader
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.api.deps import CurrentUser, DbDep
+from app.api.query_params import parse_bool_query
 from app.models.study import (
     Flashcard,
+    FlashcardReview as FlashcardReviewLog,
     Quiz,
     QuizQuestion,
     QuizResult,
@@ -17,10 +19,12 @@ from app.models.study import (
     AISummary,
     WeakArea,
 )
+from app.models.engagement import ActivityLog
 from app.schemas.study import (
     FlashcardGenerate,
     FlashcardOut,
     FlashcardReview,
+    PlanUpdate,
     QuizGenerateRequest,
     QuizOut,
     QuizResultOut,
@@ -36,11 +40,26 @@ from app.services.ai import (
     QuizService,
     SummarizerService,
 )
+from app.services import engagement
 
 router = APIRouter()
 
 
 # ---------- Study plans ----------
+def _plan_dict(p: StudyPlan) -> dict:
+    return {
+        "id": p.id,
+        "exam_name": p.exam_name,
+        "exam_date": p.exam_date.date(),
+        "daily_hours": p.daily_hours,
+        "syllabus": p.syllabus,
+        "schedule": p.schedule,
+        "granularity": p.granularity,
+        "archived": p.archived,
+        "created_at": p.created_at,
+    }
+
+
 @router.post("/plans")
 async def create_plan(
     payload: StudyPlanCreate, current: CurrentUser, db: DbDep
@@ -51,6 +70,7 @@ async def create_plan(
         daily_hours=payload.daily_hours,
         syllabus=payload.syllabus,
         weak_topics=payload.weak_topics,
+        granularity=payload.granularity,
     )
     plan = StudyPlan(
         user_id=current.id,
@@ -62,47 +82,89 @@ async def create_plan(
         syllabus=payload.syllabus,
         weak_topics=payload.weak_topics,
         schedule=schedule,
+        granularity=payload.granularity,
     )
     db.add(plan)
+    db.flush()
+    unit = {"daily": "day", "weekly": "week", "monthly": "month"}.get(
+        payload.granularity, "block"
+    )
+    engagement.record_event(
+        db,
+        current.id,
+        action="plan_generated",
+        category="planner",
+        title=f"Study plan ready: {plan.exam_name}",
+        summary=f"Generated a {len(schedule)}-{unit} plan for {plan.exam_name}",
+        body=f"{len(schedule)} {unit} blocks · {payload.daily_hours}h/day. Weak areas prioritized.",
+        link="/dashboard/planner",
+        entity_type="study_plan",
+        entity_id=plan.id,
+    )
     db.commit()
     db.refresh(plan)
-    return {
-        "plan": {
-            "id": plan.id,
-            "exam_name": plan.exam_name,
-            "exam_date": plan.exam_date.date(),
-            "daily_hours": plan.daily_hours,
-            "syllabus": plan.syllabus,
-            "schedule": plan.schedule,
-            "created_at": plan.created_at,
-        }
-    }
+    return {"plan": _plan_dict(plan)}
 
 
 @router.get("/plans")
-def list_plans(current: CurrentUser, db: DbDep):
-    plans = (
-        db.scalars(
-            select(StudyPlan)
-            .where(StudyPlan.user_id == current.id)
-            .order_by(StudyPlan.created_at.desc())
-        )
-        .all()
+def list_plans(
+    current: CurrentUser,
+    db: DbDep,
+    include_archived: str | None = Query(default=None),
+):
+    include = parse_bool_query(include_archived)
+    stmt = select(StudyPlan).where(StudyPlan.user_id == current.id)
+    if not include:
+        stmt = stmt.where(StudyPlan.archived.is_(False))
+    plans = db.scalars(stmt.order_by(StudyPlan.created_at.desc())).all()
+    return {"plans": [_plan_dict(p) for p in plans]}
+
+
+@router.patch("/plans/{plan_id}")
+def update_plan(
+    plan_id: uuid.UUID, payload: PlanUpdate, current: CurrentUser, db: DbDep
+):
+    plan = db.get(StudyPlan, plan_id)
+    if not plan or plan.user_id != current.id:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    if payload.exam_name is not None:
+        plan.exam_name = payload.exam_name
+    if payload.archived is not None:
+        plan.archived = payload.archived
+    db.commit()
+    db.refresh(plan)
+    return {"plan": _plan_dict(plan)}
+
+
+@router.post("/plans/{plan_id}/duplicate")
+def duplicate_plan(plan_id: uuid.UUID, current: CurrentUser, db: DbDep):
+    src = db.get(StudyPlan, plan_id)
+    if not src or src.user_id != current.id:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    copy = StudyPlan(
+        user_id=current.id,
+        exam_name=f"{src.exam_name} (copy)",
+        exam_date=src.exam_date,
+        daily_hours=src.daily_hours,
+        syllabus=src.syllabus,
+        weak_topics=src.weak_topics,
+        schedule=src.schedule,
+        granularity=src.granularity,
     )
-    return {
-        "plans": [
-            {
-                "id": p.id,
-                "exam_name": p.exam_name,
-                "exam_date": p.exam_date.date(),
-                "daily_hours": p.daily_hours,
-                "syllabus": p.syllabus,
-                "schedule": p.schedule,
-                "created_at": p.created_at,
-            }
-            for p in plans
-        ]
-    }
+    db.add(copy)
+    db.commit()
+    db.refresh(copy)
+    return {"plan": _plan_dict(copy)}
+
+
+@router.delete("/plans/{plan_id}", status_code=204)
+def delete_plan(plan_id: uuid.UUID, current: CurrentUser, db: DbDep):
+    plan = db.get(StudyPlan, plan_id)
+    if not plan or plan.user_id != current.id:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    db.delete(plan)
+    db.commit()
+    return None
 
 
 # ---------- Notes summarization ----------
@@ -117,6 +179,16 @@ async def summarize_text(
             summary=result["summary"],
             key_points=result["key_points"],
         )
+    )
+    engagement.record_event(
+        db,
+        current.id,
+        action="summary_completed",
+        category="notes",
+        title="Summary ready",
+        summary="Summarized pasted notes",
+        body=f"{len(result.get('key_points', []))} key points extracted.",
+        link="/dashboard/notes",
     )
     db.commit()
     return result
@@ -158,6 +230,18 @@ async def upload_note(
             summary=result["summary"],
             key_points=result["key_points"],
         )
+    )
+    engagement.record_event(
+        db,
+        current.id,
+        action="summary_completed",
+        category="notes",
+        title=f"Summary ready: {name}",
+        summary=f"Summarized uploaded note “{name}”",
+        body=f"{len(result.get('key_points', []))} key points extracted.",
+        link="/dashboard/notes",
+        entity_type="uploaded_note",
+        entity_id=note.id,
     )
     db.commit()
     return result
@@ -201,6 +285,18 @@ async def generate_quiz(
             )
         )
     db.add_all(questions)
+    engagement.record_event(
+        db,
+        current.id,
+        action="quiz_generated",
+        category="quiz",
+        title=f"Quiz ready: {quiz.topic}",
+        summary=f"Generated a {len(questions)}-question {payload.difficulty} quiz on {quiz.topic}",
+        body=f"{len(questions)} questions · {payload.difficulty} · {payload.type}",
+        link="/dashboard/quizzes",
+        entity_type="quiz",
+        entity_id=quiz.id,
+    )
     db.commit()
     for q in questions:
         db.refresh(q)
@@ -219,6 +315,7 @@ async def generate_quiz(
                     "options": q.options,
                     "correct_answer": q.correct_answer,
                     "explanation": q.explanation,
+                    "topic_tag": q.topic_tag,
                 }
                 for q in sorted(questions, key=lambda x: x.position)
             ],
@@ -251,7 +348,9 @@ def submit_quiz(
     weak_topics: dict[str, int] = {}
     for q in questions:
         given = payload.answers.get(str(q.id), "")
-        correct = str(given).strip() == str(q.correct_answer).strip()
+        # Case-insensitive so fill/short answers aren't marked wrong on casing;
+        # MCQ answers are index strings so this is a no-op for them.
+        correct = str(given).strip().lower() == str(q.correct_answer).strip().lower()
         if correct:
             score += 1
         else:
@@ -296,11 +395,31 @@ def submit_quiz(
                 )
             )
 
+    total = len(questions)
+    pct = round((score / total) * 100) if total else 0
+    weak_list = list(weak_topics.keys())
+    body = f"You scored {score}/{total} ({pct}%)."
+    if weak_list:
+        body += f" Weak areas: {', '.join(weak_list[:3])}."
+    engagement.record_event(
+        db,
+        current.id,
+        action="quiz_completed",
+        category="quiz",
+        title=f"Quiz scored: {pct}% on {quiz.topic}",
+        summary=f"Completed quiz on {quiz.topic} — {score}/{total} ({pct}%)",
+        body=body,
+        link="/dashboard/quizzes",
+        entity_type="quiz",
+        entity_id=quiz.id,
+        meta={"score": score, "total": total, "pct": pct, "weak": weak_list},
+    )
+
     db.commit()
     return {
         "score": score,
-        "total": len(questions),
-        "weak_topics": list(weak_topics.keys()),
+        "total": total,
+        "weak_topics": weak_list,
         "review": review,
     }
 
@@ -326,6 +445,16 @@ async def generate_flashcards(
             )
         )
     db.add_all(rows)
+    engagement.record_event(
+        db,
+        current.id,
+        action="flashcards_ready",
+        category="flashcards",
+        title=f"{len(rows)} flashcards ready: {payload.topic}",
+        summary=f"Generated {len(rows)} flashcards on {payload.topic}",
+        body="Your review session is ready. Start now to lock it into memory.",
+        link="/dashboard/flashcards",
+    )
     db.commit()
     for r in rows:
         db.refresh(r)
@@ -341,6 +470,88 @@ async def generate_flashcards(
             }
             for r in rows
         ]
+    }
+
+
+def _card_dict(c: Flashcard, now: datetime) -> dict:
+    mastered = c.repetitions >= 5 or c.interval_days >= 21
+    return {
+        "id": c.id,
+        "topic": c.topic,
+        "front": c.front,
+        "back": c.back,
+        "ease": c.ease,
+        "interval_days": c.interval_days,
+        "repetitions": c.repetitions,
+        "next_review": c.next_review,
+        "due": c.next_review <= now,
+        "mastered": mastered,
+    }
+
+
+@router.get("/flashcards")
+def list_flashcards(
+    current: CurrentUser,
+    db: DbDep,
+    filter: str = Query(default="all"),
+):
+    now = datetime.now(timezone.utc)
+    cards = db.scalars(
+        select(Flashcard)
+        .where(Flashcard.user_id == current.id)
+        .order_by(Flashcard.next_review.asc())
+    ).all()
+    items = [_card_dict(c, now) for c in cards]
+    if filter == "due":
+        items = [c for c in items if c["due"]]
+    elif filter == "mastered":
+        items = [c for c in items if c["mastered"]]
+    return {"flashcards": items}
+
+
+@router.get("/flashcards/stats")
+def flashcard_stats(current: CurrentUser, db: DbDep):
+    now = datetime.now(timezone.utc)
+    cards = db.scalars(
+        select(Flashcard).where(Flashcard.user_id == current.id)
+    ).all()
+    total = len(cards)
+    due = sum(1 for c in cards if c.next_review <= now)
+    mastered = sum(1 for c in cards if c.repetitions >= 5 or c.interval_days >= 21)
+
+    reviews = db.scalars(
+        select(FlashcardReviewLog)
+        .where(FlashcardReviewLog.user_id == current.id)
+        .order_by(FlashcardReviewLog.reviewed_at.desc())
+    ).all()
+    total_reviews = len(reviews)
+    passed = sum(1 for r in reviews if r.quality >= 3)
+    retention = round((passed / total_reviews) * 100) if total_reviews else 0
+
+    # Daily review counts for the last 7 days (oldest -> newest).
+    today = now.date()
+    daily = []
+    for i in range(6, -1, -1):
+        d = today - timedelta(days=i)
+        count = sum(1 for r in reviews if r.reviewed_at.date() == d)
+        daily.append({"date": d.isoformat(), "count": count})
+
+    # Review streak: consecutive days (ending today) with >= 1 review.
+    review_days = {r.reviewed_at.date() for r in reviews}
+    streak = 0
+    cursor = today
+    while cursor in review_days:
+        streak += 1
+        cursor -= timedelta(days=1)
+
+    return {
+        "total": total,
+        "due": due,
+        "mastered": mastered,
+        "total_reviews": total_reviews,
+        "retention_rate": retention,
+        "review_streak": streak,
+        "daily_reviews": daily,
     }
 
 
@@ -372,8 +583,68 @@ def review_flashcard(
             1.3, card.ease + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02))
         )
     card.next_review = datetime.now(timezone.utc) + timedelta(days=card.interval_days)
+
+    # Log the review for retention/streak analytics.
+    db.add(
+        FlashcardReviewLog(user_id=current.id, card_id=card.id, quality=q)
+    )
+
+    quality_label = {0: "Again", 1: "Again", 2: "Hard", 3: "Good", 4: "Good", 5: "Easy"}.get(q, "Good")
+    engagement.log_activity(
+        db,
+        current.id,
+        action="flashcards_reviewed",
+        summary=f"Reviewed a {card.topic} flashcard ({quality_label})",
+        entity_type="flashcard",
+        entity_id=card.id,
+        meta={"quality": q, "interval_days": card.interval_days},
+    )
+    # Celebrate when a card crosses into long-term retention.
+    if card.repetitions >= 5 or card.interval_days >= 21:
+        engagement.push_notification(
+            db,
+            current.id,
+            type="streak_increased",
+            category="flashcards",
+            title=f"Card mastered: {card.topic}",
+            body="You've locked this card into long-term memory. 🎉",
+            link="/dashboard/flashcards",
+        )
+
     db.commit()
     return None
+
+
+# ---------- Weak areas ----------
+@router.get("/weak-areas")
+def list_weak_areas(current: CurrentUser, db: DbDep):
+    rows = db.scalars(
+        select(WeakArea)
+        .where(WeakArea.user_id == current.id)
+        .order_by(WeakArea.score.asc())
+    ).all()
+
+    out = []
+    for w in rows:
+        score = round(w.score)
+        if score < 45:
+            severity, minutes = "critical", 45
+        elif score < 65:
+            severity, minutes = "high", 30
+        else:
+            severity, minutes = "moderate", 20
+        out.append(
+            {
+                "topic": w.topic,
+                "score": score,
+                "severity": severity,
+                "suggested_minutes": minutes,
+                "last_practiced": w.last_practiced,
+                "recommended_action": w.recommended_action
+                or f"Run a focused {w.topic} practice round",
+            }
+        )
+    return {"weak_areas": out}
 
 
 # ---------- Progress ----------
@@ -393,4 +664,87 @@ def get_progress(current: CurrentUser, db: DbDep):
         "productivity": current.productivity_score,
         "weekly": [],
         "weak_areas": [{"topic": w.topic, "score": w.score} for w in weak],
+    }
+
+
+@router.get("/analytics")
+def get_analytics(current: CurrentUser, db: DbDep):
+    now = datetime.now(timezone.utc)
+    today = now.date()
+
+    # Quiz accuracy trend (chronological, last 20 attempts).
+    results = db.scalars(
+        select(QuizResult)
+        .where(QuizResult.user_id == current.id)
+        .order_by(QuizResult.created_at.asc())
+    ).all()
+    quiz_accuracy = [
+        {
+            "date": r.created_at.date().isoformat(),
+            "accuracy": round((r.score / r.total) * 100) if r.total else 0,
+        }
+        for r in results[-20:]
+    ]
+    avg_accuracy = (
+        round(sum(q["accuracy"] for q in quiz_accuracy) / len(quiz_accuracy))
+        if quiz_accuracy
+        else 0
+    )
+
+    # Daily activity + daily reviews for the last 14 days.
+    activities = db.scalars(
+        select(ActivityLog).where(ActivityLog.user_id == current.id)
+    ).all()
+    reviews = db.scalars(
+        select(FlashcardReviewLog).where(
+            FlashcardReviewLog.user_id == current.id
+        )
+    ).all()
+    daily = []
+    for i in range(13, -1, -1):
+        d = today - timedelta(days=i)
+        daily.append(
+            {
+                "date": d.isoformat(),
+                "activities": sum(
+                    1 for a in activities if a.created_at.date() == d
+                ),
+                "reviews": sum(
+                    1 for r in reviews if r.reviewed_at.date() == d
+                ),
+            }
+        )
+
+    # Topic mastery from tracked weak areas (score == mastery %).
+    weak = db.scalars(
+        select(WeakArea)
+        .where(WeakArea.user_id == current.id)
+        .order_by(WeakArea.score.asc())
+        .limit(8)
+    ).all()
+    topic_mastery = [
+        {"topic": w.topic, "mastery": round(w.score)} for w in weak
+    ]
+
+    mastered_cards = db.scalar(
+        select(func.count())
+        .select_from(Flashcard)
+        .where(
+            Flashcard.user_id == current.id,
+            Flashcard.repetitions >= 5,
+        )
+    )
+
+    return {
+        "summary": {
+            "streak": current.streak,
+            "productivity": current.productivity_score,
+            "quizzes_taken": len(results),
+            "avg_accuracy": avg_accuracy,
+            "total_activities": len(activities),
+            "mastered_cards": int(mastered_cards or 0),
+        },
+        "quiz_accuracy": quiz_accuracy,
+        "daily": daily,
+        "topic_mastery": topic_mastery,
     }

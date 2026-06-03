@@ -4,7 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Send, Sparkles, User, Square } from "lucide-react";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import rehypeHighlight from "rehype-highlight";
+import { Send, Sparkles, User, Square, Copy, Check, RefreshCw } from "lucide-react";
 import toast from "react-hot-toast";
 
 import { Topbar } from "@/components/dashboard/Topbar";
@@ -25,8 +28,19 @@ export default function TutorPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const stopRef = useRef<null | (() => void)>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Load persisted conversation once on mount so history survives reloads.
+  useEffect(() => {
+    studyApi
+      .chatHistory()
+      .then((rows) => {
+        if (rows.length) setMessages(rows);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -35,20 +49,12 @@ export default function TutorPage() {
     });
   }, [messages, streaming]);
 
-  const send = async (text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed || streaming) return;
-
-    const userMsg: ChatMessage = {
-      id: `u-${Date.now()}`,
-      role: "user",
-      content: trimmed,
-      created_at: new Date().toISOString(),
-    };
+  // Stream an assistant reply for `userText` given prior `history`, writing into
+  // a fresh assistant bubble. Shared by send + regenerate.
+  const streamReply = (userText: string, history: ChatMessage[]) => {
     const assistantId = `a-${Date.now()}`;
     setMessages((m) => [
       ...m,
-      userMsg,
       {
         id: assistantId,
         role: "assistant",
@@ -56,12 +62,10 @@ export default function TutorPage() {
         created_at: new Date().toISOString(),
       },
     ]);
-    setInput("");
     setStreaming(true);
-
-    const stop = studyApi.chatStream(
-      trimmed,
-      messages,
+    stopRef.current = studyApi.chatStream(
+      userText,
+      history,
       (chunk) => {
         setMessages((m) =>
           m.map((msg) =>
@@ -77,13 +81,62 @@ export default function TutorPage() {
         setStreaming(false);
       }
     );
-    stopRef.current = stop;
+  };
+
+  const send = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || streaming) return;
+    const history = messages;
+    setMessages((m) => [
+      ...m,
+      {
+        id: `u-${Date.now()}`,
+        role: "user",
+        content: trimmed,
+        created_at: new Date().toISOString(),
+      },
+    ]);
+    setInput("");
+    streamReply(trimmed, history);
+  };
+
+  // Re-answer the most recent question: drop the last assistant reply and
+  // stream a fresh one from the same context.
+  const regenerate = () => {
+    if (streaming) return;
+    let lastUser = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "user") {
+        lastUser = i;
+        break;
+      }
+    }
+    if (lastUser === -1) return;
+    const userText = messages[lastUser].content;
+    const history = messages.slice(0, lastUser);
+    setMessages(messages.slice(0, lastUser + 1));
+    streamReply(userText, history);
+  };
+
+  const copy = (text: string, id: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedId(id);
+      setTimeout(() => setCopiedId((c) => (c === id ? null : c)), 1500);
+    });
   };
 
   const cancel = () => {
     stopRef.current?.();
     setStreaming(false);
   };
+
+  let lastAssistantId: string | null = null;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "assistant") {
+      lastAssistantId = messages[i].id;
+      break;
+    }
+  }
 
   return (
     <>
@@ -146,11 +199,35 @@ export default function TutorPage() {
                   >
                     {msg.role === "assistant" ? (
                       msg.content ? (
-                        <article className="prose prose-sm max-w-none dark:prose-invert prose-p:my-2 prose-pre:rounded-lg prose-code:rounded prose-code:bg-secondary prose-code:px-1 prose-code:py-0.5 prose-code:before:content-[''] prose-code:after:content-['']">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                            {msg.content}
-                          </ReactMarkdown>
-                        </article>
+                        <>
+                          <article className="prose prose-sm max-w-none dark:prose-invert prose-p:my-2 prose-pre:rounded-lg prose-code:rounded prose-code:bg-secondary prose-code:px-1 prose-code:py-0.5 prose-code:before:content-[''] prose-code:after:content-['']">
+                            <ReactMarkdown
+                              remarkPlugins={[remarkGfm, remarkMath]}
+                              rehypePlugins={[rehypeKatex, rehypeHighlight]}
+                            >
+                              {msg.content}
+                            </ReactMarkdown>
+                          </article>
+                          {!streaming && (
+                            <div className="mt-2 flex items-center gap-1 border-t border-border/60 pt-2">
+                              <MsgAction
+                                title="Copy"
+                                onClick={() => copy(msg.content, msg.id)}
+                              >
+                                {copiedId === msg.id ? (
+                                  <Check className="h-3.5 w-3.5 text-emerald-500" />
+                                ) : (
+                                  <Copy className="h-3.5 w-3.5" />
+                                )}
+                              </MsgAction>
+                              {msg.id === lastAssistantId && (
+                                <MsgAction title="Regenerate" onClick={regenerate}>
+                                  <RefreshCw className="h-3.5 w-3.5" />
+                                </MsgAction>
+                              )}
+                            </div>
+                          )}
+                        </>
                       ) : (
                         <Thinking />
                       )
@@ -200,6 +277,27 @@ export default function TutorPage() {
         </div>
       </main>
     </>
+  );
+}
+
+function MsgAction({
+  title,
+  onClick,
+  children,
+}: {
+  title: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      title={title}
+      aria-label={title}
+      onClick={onClick}
+      className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground"
+    >
+      {children}
+    </button>
   );
 }
 

@@ -1,5 +1,15 @@
 import { api } from "./client";
-import type { StudyPlan, Quiz, Flashcard, ChatMessage } from "@/lib/types";
+import { cleanParams } from "./params";
+import type {
+  StudyPlan,
+  Quiz,
+  Flashcard,
+  FlashcardStats,
+  ChatMessage,
+  PlanGranularity,
+  WeakAreaDetail,
+  Analytics,
+} from "@/lib/types";
 
 export const studyApi = {
   // Study Planner
@@ -9,6 +19,7 @@ export const studyApi = {
     daily_hours: number;
     syllabus: string;
     weak_topics?: string[];
+    granularity?: PlanGranularity;
   }) => {
     const r = await api.post<{ plan: StudyPlan }>(
       "/api/study/plans",
@@ -16,9 +27,32 @@ export const studyApi = {
     );
     return r.data.plan;
   },
-  listPlans: async () => {
-    const r = await api.get<{ plans: StudyPlan[] }>("/api/study/plans");
+  listPlans: async (includeArchived = false) => {
+    const r = await api.get<{ plans: StudyPlan[] }>("/api/study/plans", {
+      params: cleanParams(
+        includeArchived ? { include_archived: true } : {}
+      ),
+    });
     return r.data.plans;
+  },
+  updatePlan: async (
+    id: string,
+    patch: { exam_name?: string; archived?: boolean }
+  ) => {
+    const r = await api.patch<{ plan: StudyPlan }>(
+      `/api/study/plans/${id}`,
+      patch
+    );
+    return r.data.plan;
+  },
+  duplicatePlan: async (id: string) => {
+    const r = await api.post<{ plan: StudyPlan }>(
+      `/api/study/plans/${id}/duplicate`
+    );
+    return r.data.plan;
+  },
+  deletePlan: async (id: string) => {
+    await api.delete(`/api/study/plans/${id}`);
   },
 
   // Notes Summarizer
@@ -68,11 +102,26 @@ export const studyApi = {
     );
     return r.data.flashcards;
   },
+  listFlashcards: async (filter: "all" | "due" | "mastered" = "all") => {
+    const r = await api.get<{ flashcards: Flashcard[] }>(
+      "/api/study/flashcards",
+      { params: { filter } }
+    );
+    return r.data.flashcards;
+  },
+  flashcardStats: async () => {
+    const r = await api.get<FlashcardStats>("/api/study/flashcards/stats");
+    return r.data;
+  },
   reviewFlashcard: async (id: string, quality: number) => {
     await api.post(`/api/study/flashcards/${id}/review`, { quality });
   },
 
   // AI Tutor
+  chatHistory: async () => {
+    const r = await api.get<ChatMessage[]>("/api/tutor/history");
+    return r.data;
+  },
   chat: async (message: string, history: ChatMessage[] = []) => {
     const r = await api.post<{ reply: string; message_id: string }>(
       "/api/tutor/chat",
@@ -126,6 +175,20 @@ export const studyApi = {
       })
       .catch(onError);
     return () => ctrl.abort();
+  },
+
+  // Analytics
+  analytics: async () => {
+    const r = await api.get<Analytics>("/api/study/analytics");
+    return r.data;
+  },
+
+  // Weak areas
+  weakAreas: async () => {
+    const r = await api.get<{ weak_areas: WeakAreaDetail[] }>(
+      "/api/study/weak-areas"
+    );
+    return r.data.weak_areas;
   },
 
   // Progress

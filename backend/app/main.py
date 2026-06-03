@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from app.api.routes import api_router
 from app.core.config import settings
 from app.db.session import Base, engine
+from app.services.ai import GeminiError, GeminiRateLimitError
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -54,6 +55,17 @@ def health():
 
 
 app.include_router(api_router, prefix="/api")
+
+
+@app.exception_handler(GeminiError)
+async def gemini_error_handler(request, exc):
+    # Surface AI hiccups as a retryable 503 instead of a scary 500.
+    if isinstance(exc, GeminiRateLimitError):
+        detail = "The AI is busy right now (rate limited). Please retry in a moment."
+    else:
+        detail = "The AI service had a temporary hiccup. Please try again."
+    log.warning("Gemini error: %s", exc)
+    return JSONResponse(status_code=503, content={"detail": detail})
 
 
 @app.exception_handler(Exception)

@@ -11,16 +11,48 @@ import {
   CheckCircle2,
   Clock,
   ArrowRight,
-  BookOpen,
+  Activity as ActivityIcon,
+  Brain,
+  Layers,
+  FileText,
+  MessageSquare,
+  CalendarDays,
 } from "lucide-react";
 import { Topbar } from "@/components/dashboard/Topbar";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/store/auth";
+import { usePlans, useProgress } from "@/lib/hooks/useStudy";
+import { useActivityFeed } from "@/lib/hooks/useNotifications";
+import { daysUntil, timeAgo } from "@/lib/utils/time";
+
+// Map an activity action to an icon + tint for the recent-activity feed.
+const ACTION_META: Record<string, { icon: typeof Brain; tint: string }> = {
+  quiz_generated: { icon: Brain, tint: "text-violet-500 bg-violet-500/10" },
+  quiz_completed: { icon: Brain, tint: "text-violet-500 bg-violet-500/10" },
+  plan_generated: { icon: CalendarDays, tint: "text-brand-500 bg-brand-500/10" },
+  flashcards_ready: { icon: Layers, tint: "text-amber-500 bg-amber-500/10" },
+  flashcards_reviewed: { icon: Layers, tint: "text-amber-500 bg-amber-500/10" },
+  summary_completed: { icon: FileText, tint: "text-sky-500 bg-sky-500/10" },
+  tutor_session: { icon: MessageSquare, tint: "text-emerald-500 bg-emerald-500/10" },
+};
 
 export default function DashboardHome() {
   const user = useAuth((s) => s.user);
+  const { data: plans = [] } = usePlans();
+  const { data: progress } = useProgress();
+  const { data: activities = [] } = useActivityFeed(12);
+
+  // The "active" plan = the one whose exam is soonest in the future.
+  const upcoming = plans
+    .map((p) => ({ plan: p, days: daysUntil(p.exam_date) }))
+    .filter((x) => x.days >= 0)
+    .sort((a, b) => a.days - b.days);
+  const active = upcoming[0] ?? (plans[0] ? { plan: plans[0], days: daysUntil(plans[0].exam_date) } : null);
+
+  const weakAreas = progress?.weak_areas ?? [];
+  const todayFocus = active?.plan.schedule?.[0];
 
   return (
     <>
@@ -30,30 +62,35 @@ export default function DashboardHome() {
           <StatCard
             icon={<Flame className="h-5 w-5" />}
             label="Current streak"
-            value={`${user?.streak ?? 0} days`}
+            value={`${user?.streak ?? 0} ${(user?.streak ?? 0) === 1 ? "day" : "days"}`}
             color="from-orange-400 to-pink-500"
           />
           <StatCard
             icon={<TrendingUp className="h-5 w-5" />}
             label="Productivity"
-            value={`${user?.productivity_score ?? 78}/100`}
+            value={`${progress?.productivity ?? user?.productivity_score ?? 70}/100`}
             color="from-emerald-400 to-teal-600"
           />
           <StatCard
             icon={<Target className="h-5 w-5" />}
             label="Weak topics"
-            value="3 active"
+            value={weakAreas.length ? `${weakAreas.length} active` : "None yet"}
             color="from-rose-400 to-orange-500"
           />
           <StatCard
             icon={<Calendar className="h-5 w-5" />}
             label="Next exam"
-            value="JEE · 47d"
+            value={
+              active
+                ? `${active.plan.exam_name.split(" ")[0]} · ${active.days}d`
+                : "No exam set"
+            }
             color="from-brand-500 to-violet-600"
           />
         </div>
 
         <div className="mt-6 grid gap-4 lg:grid-cols-3">
+          {/* Today's focus from the active plan */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -65,10 +102,12 @@ export default function DashboardHome() {
                 <div className="mb-4 flex items-center justify-between">
                   <div>
                     <p className="text-xs uppercase tracking-wider text-muted-foreground">
-                      Today's plan
+                      Today's focus
                     </p>
                     <h2 className="text-xl font-semibold">
-                      4h 15m of focused study
+                      {active
+                        ? `${active.plan.exam_name} · ${active.plan.daily_hours}h/day`
+                        : "No active study plan"}
                     </h2>
                   </div>
                   <Button asChild size="sm" variant="outline">
@@ -77,144 +116,134 @@ export default function DashboardHome() {
                     </Link>
                   </Button>
                 </div>
-                <div className="space-y-3">
-                  {[
-                    {
-                      t: "Calculus · Limits",
-                      h: "1h",
-                      done: true,
-                      note: "AI summary ready",
-                    },
-                    {
-                      t: "Physics · Wave Optics",
-                      h: "45m",
-                      done: true,
-                      note: "8/10 quiz · review 2",
-                    },
-                    {
-                      t: "DSA · Recursion",
-                      h: "1.5h",
-                      done: false,
-                      note: "Start with base cases",
-                    },
-                    {
-                      t: "Flashcards SRS",
-                      h: "20m",
-                      done: false,
-                      note: "12 due today",
-                    },
-                  ].map((it, i) => (
-                    <motion.div
-                      key={i}
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: 0.05 * i }}
-                      className="flex items-center gap-3 rounded-xl border border-border bg-card/40 p-3"
-                    >
-                      {it.done ? (
-                        <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-                      ) : (
+
+                {todayFocus ? (
+                  <div className="space-y-3">
+                    {todayFocus.topics.map((t, i) => (
+                      <motion.div
+                        key={i}
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: 0.05 * i }}
+                        className="flex items-center gap-3 rounded-xl border border-border bg-card/40 p-3"
+                      >
                         <Clock className="h-5 w-5 text-muted-foreground" />
-                      )}
-                      <div className="flex-1">
-                        <p
-                          className={`text-sm font-medium ${
-                            it.done ? "text-muted-foreground line-through" : ""
-                          }`}
-                        >
-                          {it.t}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {it.note}
-                        </p>
-                      </div>
-                      <span className="text-xs text-muted-foreground">
-                        {it.h}
-                      </span>
-                    </motion.div>
-                  ))}
-                </div>
+                        <div className="flex-1">
+                          <p className="text-sm font-medium">{t}</p>
+                          {todayFocus.goals?.[i] && (
+                            <p className="text-xs text-muted-foreground">
+                              {todayFocus.goals[i]}
+                            </p>
+                          )}
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          {todayFocus.hours}h
+                        </span>
+                      </motion.div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-border p-8 text-center">
+                    <CalendarDays className="mx-auto h-7 w-7 text-muted-foreground/50" />
+                    <p className="mt-2 text-sm font-medium">
+                      Generate a study plan to see today's focus
+                    </p>
+                    <Button asChild size="sm" className="mt-3">
+                      <Link href="/dashboard/planner">Create a plan</Link>
+                    </Button>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </motion.div>
 
+          {/* Recent activity (real) */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.1 }}
           >
-            <Card className="h-full bg-gradient-to-br from-brand-500 to-violet-600 text-white">
+            <Card className="h-full">
               <CardContent className="flex h-full flex-col p-6">
-                <Sparkles className="h-6 w-6" />
-                <h3 className="mt-3 text-lg font-semibold">
-                  AI recommendation
+                <h3 className="flex items-center gap-2 text-sm font-semibold">
+                  <ActivityIcon className="h-4 w-4 text-brand-500" /> Recent
+                  activity
                 </h3>
-                <p className="mt-2 text-sm opacity-90">
-                  You missed 2 questions on integration by parts in your last
-                  quiz. I drafted a 25-min focused practice with 8 fresh
-                  questions.
-                </p>
-                <Button
-                  asChild
-                  variant="glass"
-                  className="mt-auto bg-white/15 text-white hover:bg-white/25"
-                >
-                  <Link href="/dashboard/quizzes">
-                    Start practice <ArrowRight className="h-3.5 w-3.5" />
-                  </Link>
-                </Button>
+                {activities.length ? (
+                  <ul className="mt-4 space-y-3">
+                    {activities.slice(0, 6).map((a) => {
+                      const meta = ACTION_META[a.action] ?? {
+                        icon: Sparkles,
+                        tint: "text-muted-foreground bg-muted",
+                      };
+                      const Icon = meta.icon;
+                      return (
+                        <li key={a.id} className="flex items-start gap-3">
+                          <span
+                            className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg ${meta.tint}`}
+                          >
+                            <Icon className="h-3.5 w-3.5" />
+                          </span>
+                          <div className="min-w-0">
+                            <p className="truncate text-sm">{a.summary}</p>
+                            <p className="text-[11px] text-muted-foreground">
+                              {timeAgo(a.created_at)}
+                            </p>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : (
+                  <div className="my-auto text-center text-sm text-muted-foreground">
+                    No activity yet. Generate a quiz, plan, or summary to get
+                    started.
+                  </div>
+                )}
               </CardContent>
             </Card>
           </motion.div>
         </div>
 
-        <div className="mt-6 grid gap-4 lg:grid-cols-3">
+        {/* Weak areas / mastery (real) */}
+        <div className="mt-6">
           <Card>
             <CardContent className="p-6">
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-sm font-medium">Calculus</p>
-                <span className="text-xs text-muted-foreground">72%</span>
-              </div>
-              <Progress value={72} />
-              <p className="mt-3 text-xs text-muted-foreground">
-                Mastery improving · 3 sessions this week
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-6">
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-sm font-medium">Physics</p>
-                <span className="text-xs text-muted-foreground">58%</span>
-              </div>
-              <Progress value={58} />
-              <p className="mt-3 text-xs text-muted-foreground">
-                Wave Optics needs revision
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-6">
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-sm font-medium">Chemistry</p>
-                <span className="text-xs text-muted-foreground">81%</span>
-              </div>
-              <Progress value={81} />
-              <p className="mt-3 text-xs text-muted-foreground">
-                On track · maintain weekly reviews
-              </p>
+              <h3 className="flex items-center gap-2 text-sm font-semibold">
+                <Target className="h-4 w-4 text-rose-500" /> Weak areas to
+                review
+              </h3>
+              {weakAreas.length ? (
+                <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {weakAreas.slice(0, 6).map((w) => (
+                    <div key={w.topic}>
+                      <div className="mb-1 flex items-center justify-between">
+                        <p className="truncate text-sm font-medium">
+                          {w.topic}
+                        </p>
+                        <span className="text-xs text-muted-foreground">
+                          {Math.round(w.score)}%
+                        </span>
+                      </div>
+                      <Progress value={Math.round(w.score)} />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-3 text-sm text-muted-foreground">
+                  No weak areas detected yet — take a quiz and I'll start
+                  tracking the topics you miss.
+                </p>
+              )}
             </CardContent>
           </Card>
         </div>
 
+        {/* Quick start */}
         <div className="mt-6">
           <Card>
             <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <h3 className="flex items-center gap-2 text-sm font-semibold">
-                  <BookOpen className="h-4 w-4 text-brand-500" /> Quick start
-                </h3>
-              </div>
+              <h3 className="text-sm font-semibold">Quick start</h3>
               <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <QuickAction
                   href="/dashboard/tutor"
@@ -234,7 +263,7 @@ export default function DashboardHome() {
                 <QuickAction
                   href="/dashboard/flashcards"
                   title="Review flashcards"
-                  desc="12 cards due today."
+                  desc="Spaced-repetition review."
                 />
               </div>
             </CardContent>
@@ -264,9 +293,9 @@ function StatCard({
         >
           {icon}
         </div>
-        <div>
+        <div className="min-w-0">
           <p className="text-xs text-muted-foreground">{label}</p>
-          <p className="text-lg font-semibold">{value}</p>
+          <p className="truncate text-lg font-semibold">{value}</p>
         </div>
       </CardContent>
     </Card>

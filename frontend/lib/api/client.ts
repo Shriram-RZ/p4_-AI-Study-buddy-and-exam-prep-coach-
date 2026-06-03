@@ -22,9 +22,36 @@ api.interceptors.response.use(
   }
 );
 
+/** Turn FastAPI `detail` (string or validation array) into toast-safe text. */
+export function formatApiDetail(detail: unknown, fallback: string): string {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const parts = detail
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (item && typeof item === "object" && "msg" in item) {
+          const loc = Array.isArray((item as { loc?: unknown }).loc)
+            ? (item as { loc: unknown[] }).loc.filter(Boolean).join(".")
+            : "";
+          const msg = String((item as { msg: unknown }).msg);
+          return loc ? `${loc}: ${msg}` : msg;
+        }
+        return null;
+      })
+      .filter(Boolean);
+    if (parts.length) return parts.join(" ");
+  }
+  if (detail && typeof detail === "object") {
+    return JSON.stringify(detail);
+  }
+  return fallback;
+}
+
 export function apiError(err: unknown, fallback = "Something went wrong") {
   if (axios.isAxiosError(err)) {
-    return err.response?.data?.detail || err.message || fallback;
+    const detail = err.response?.data?.detail;
+    if (detail !== undefined) return formatApiDetail(detail, fallback);
+    return err.message || fallback;
   }
   return fallback;
 }

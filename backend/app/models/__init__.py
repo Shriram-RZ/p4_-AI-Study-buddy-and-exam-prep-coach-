@@ -8,12 +8,14 @@ from app.models.study import (
     QuizQuestion,
     QuizResult,
     Flashcard,
+    FlashcardReview,
     ChatHistory,
     WeakArea,
     ProgressTracking,
     RevisionSchedule,
     ExamGoal,
 )
+from app.models.engagement import Notification, ActivityLog
 
 __all__ = [
     "User",
@@ -26,9 +28,12 @@ __all__ = [
     "QuizQuestion",
     "QuizResult",
     "Flashcard",
+    "FlashcardReview",
     "ChatHistory",
     "WeakArea",
     "ProgressTracking",
     "RevisionSchedule",
     "ExamGoal",
+    "Notification",
+    "ActivityLog",
 ]

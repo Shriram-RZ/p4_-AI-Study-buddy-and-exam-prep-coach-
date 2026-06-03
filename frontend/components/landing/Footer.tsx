@@ -45,9 +45,6 @@ export function Footer() {
               <li>
                 <a href="#tutor">AI Tutor</a>
               </li>
-              <li>
-                <a href="#pricing">Pricing</a>
-              </li>
             </ul>
           </div>
           <div>
