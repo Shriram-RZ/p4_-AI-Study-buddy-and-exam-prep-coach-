@@ -3,6 +3,15 @@ export interface User {
   email: string;
   name: string;
   education_level?: string | null;
+  avatar_url?: string | null;
+  daily_study_hours: number;
+  exam_target?: string | null;
+  notification_preferences: {
+    quiz: boolean;
+    revision: boolean;
+    flashcards: boolean;
+    tutor: boolean;
+  };
   streak: number;
   productivity_score: number;
   created_at: string;

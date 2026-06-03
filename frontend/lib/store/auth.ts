@@ -16,6 +16,18 @@ interface AuthState {
     name: string;
     education_level?: string;
   }) => Promise<void>;
+  updateProfile: (data: {
+    name: string;
+    education_level?: string | null;
+    avatar_url?: string | null;
+    daily_study_hours: number;
+    exam_target?: string | null;
+    notification_preferences: User["notification_preferences"];
+  }) => Promise<void>;
+  changePassword: (
+    currentPassword: string,
+    newPassword: string
+  ) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -39,6 +51,16 @@ export const useAuth = create<AuthState>((set) => ({
   signup: async (data) => {
     const { user } = await authApi.signup(data);
     set({ user });
+  },
+  updateProfile: async (data) => {
+    const user = await authApi.updateProfile(data);
+    set({ user });
+  },
+  changePassword: async (currentPassword, newPassword) => {
+    await authApi.changePassword({
+      current_password: currentPassword,
+      new_password: newPassword,
+    });
   },
   logout: async () => {
     await authApi.logout();

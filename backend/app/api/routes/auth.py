@@ -10,8 +10,10 @@ from app.core.security import create_token, hash_password, verify_password
 from app.models.user import User, PasswordResetToken
 from app.schemas.auth import (
     AuthResponse,
+    ChangePasswordRequest,
     ForgotPasswordRequest,
     LoginRequest,
+    ProfileUpdateRequest,
     ResetPasswordRequest,
     SignupRequest,
     UserOut,
@@ -76,6 +78,44 @@ def logout(response: Response):
 @router.get("/me", response_model=AuthResponse)
 def me(current: CurrentUser):
     return {"user": UserOut.model_validate(current)}
+
+
+@router.patch("/profile", response_model=AuthResponse)
+def update_profile(payload: ProfileUpdateRequest, current: CurrentUser, db: DbDep):
+    allowed_prefs = {"quiz", "revision", "flashcards", "tutor"}
+    prefs = {
+        **(current.notification_preferences or {}),
+        **{
+            key: bool(value)
+            for key, value in payload.notification_preferences.items()
+            if key in allowed_prefs
+        },
+    }
+    for key in allowed_prefs:
+        prefs.setdefault(key, True)
+
+    current.name = payload.name.strip()
+    current.education_level = (
+        payload.education_level.strip() if payload.education_level else None
+    )
+    current.avatar_url = payload.avatar_url.strip() if payload.avatar_url else None
+    current.daily_study_hours = payload.daily_study_hours
+    current.exam_target = payload.exam_target.strip() if payload.exam_target else None
+    current.notification_preferences = prefs
+    db.commit()
+    db.refresh(current)
+    return {"user": UserOut.model_validate(current)}
+
+
+@router.post("/change-password", status_code=204)
+def change_password(
+    payload: ChangePasswordRequest, current: CurrentUser, db: DbDep
+):
+    if not verify_password(payload.current_password, current.password_hash):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    current.password_hash = hash_password(payload.new_password)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/forgot-password")
