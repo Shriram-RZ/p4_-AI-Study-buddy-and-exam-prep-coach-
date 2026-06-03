@@ -69,12 +69,22 @@ export default function PlannerPage() {
 
   const generate = async (e: React.FormEvent) => {
     e.preventDefault();
+    const dailyHours = Number(form.daily_hours);
+    if (!form.exam_name.trim()) return toast.error("Enter an exam name");
+    if (!form.exam_date) return toast.error("Choose an exam date");
+    if (!Number.isFinite(dailyHours) || dailyHours < 0.5 || dailyHours > 14) {
+      return toast.error("Daily study hours must be between 0.5 and 14");
+    }
+    if (form.syllabus.trim().length < 10) {
+      return toast.error("Add at least 10 characters of syllabus detail");
+    }
+
     try {
       const p = await createPlan.mutateAsync({
-        exam_name: form.exam_name,
+        exam_name: form.exam_name.trim(),
         exam_date: form.exam_date,
-        daily_hours: Number(form.daily_hours),
-        syllabus: form.syllabus,
+        daily_hours: dailyHours,
+        syllabus: form.syllabus.trim(),
         weak_topics: form.weak_topics
           .split(",")
           .map((t) => t.trim())
