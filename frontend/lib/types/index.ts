@@ -58,6 +58,20 @@ export interface Flashcard {
   back: string;
   ease: number;
   next_review: string;
+  interval_days?: number;
+  repetitions?: number;
+  due?: boolean;
+  mastered?: boolean;
+}
+
+export interface FlashcardStats {
+  total: number;
+  due: number;
+  mastered: number;
+  total_reviews: number;
+  retention_rate: number;
+  review_streak: number;
+  daily_reviews: { date: string; count: number }[];
 }
 
 export interface ChatMessage {

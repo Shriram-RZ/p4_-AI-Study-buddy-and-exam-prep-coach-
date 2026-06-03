@@ -188,6 +188,27 @@ class Flashcard(Base):
     user = relationship("User", back_populates="flashcards")
 
 
+class FlashcardReview(Base):
+    """Append-only log of each flashcard review — powers retention/streak
+    analytics (the Flashcard row only holds current SM-2 state)."""
+
+    __tablename__ = "flashcard_reviews"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=_uuid
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE")
+    )
+    card_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("flashcards.id", ondelete="CASCADE")
+    )
+    quality: Mapped[int] = mapped_column(Integer)
+    reviewed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 class ChatHistory(Base):
     __tablename__ = "chat_history"
 

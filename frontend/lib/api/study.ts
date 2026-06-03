@@ -3,6 +3,7 @@ import type {
   StudyPlan,
   Quiz,
   Flashcard,
+  FlashcardStats,
   ChatMessage,
   PlanGranularity,
 } from "@/lib/types";
@@ -95,6 +96,17 @@ export const studyApi = {
       { topic, count }
     );
     return r.data.flashcards;
+  },
+  listFlashcards: async (filter: "all" | "due" | "mastered" = "all") => {
+    const r = await api.get<{ flashcards: Flashcard[] }>(
+      "/api/study/flashcards",
+      { params: { filter } }
+    );
+    return r.data.flashcards;
+  },
+  flashcardStats: async () => {
+    const r = await api.get<FlashcardStats>("/api/study/flashcards/stats");
+    return r.data;
   },
   reviewFlashcard: async (id: string, quality: number) => {
     await api.post(`/api/study/flashcards/${id}/review`, { quality });

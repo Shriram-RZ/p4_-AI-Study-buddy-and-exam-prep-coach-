@@ -2,13 +2,14 @@ import io
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from pypdf import PdfReader
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.api.deps import CurrentUser, DbDep
 from app.models.study import (
     Flashcard,
+    FlashcardReview as FlashcardReviewLog,
     Quiz,
     QuizQuestion,
     QuizResult,
@@ -466,6 +467,88 @@ async def generate_flashcards(
     }
 
 
+def _card_dict(c: Flashcard, now: datetime) -> dict:
+    mastered = c.repetitions >= 5 or c.interval_days >= 21
+    return {
+        "id": c.id,
+        "topic": c.topic,
+        "front": c.front,
+        "back": c.back,
+        "ease": c.ease,
+        "interval_days": c.interval_days,
+        "repetitions": c.repetitions,
+        "next_review": c.next_review,
+        "due": c.next_review <= now,
+        "mastered": mastered,
+    }
+
+
+@router.get("/flashcards")
+def list_flashcards(
+    current: CurrentUser,
+    db: DbDep,
+    filter: str = Query(default="all"),
+):
+    now = datetime.now(timezone.utc)
+    cards = db.scalars(
+        select(Flashcard)
+        .where(Flashcard.user_id == current.id)
+        .order_by(Flashcard.next_review.asc())
+    ).all()
+    items = [_card_dict(c, now) for c in cards]
+    if filter == "due":
+        items = [c for c in items if c["due"]]
+    elif filter == "mastered":
+        items = [c for c in items if c["mastered"]]
+    return {"flashcards": items}
+
+
+@router.get("/flashcards/stats")
+def flashcard_stats(current: CurrentUser, db: DbDep):
+    now = datetime.now(timezone.utc)
+    cards = db.scalars(
+        select(Flashcard).where(Flashcard.user_id == current.id)
+    ).all()
+    total = len(cards)
+    due = sum(1 for c in cards if c.next_review <= now)
+    mastered = sum(1 for c in cards if c.repetitions >= 5 or c.interval_days >= 21)
+
+    reviews = db.scalars(
+        select(FlashcardReviewLog)
+        .where(FlashcardReviewLog.user_id == current.id)
+        .order_by(FlashcardReviewLog.reviewed_at.desc())
+    ).all()
+    total_reviews = len(reviews)
+    passed = sum(1 for r in reviews if r.quality >= 3)
+    retention = round((passed / total_reviews) * 100) if total_reviews else 0
+
+    # Daily review counts for the last 7 days (oldest -> newest).
+    today = now.date()
+    daily = []
+    for i in range(6, -1, -1):
+        d = today - timedelta(days=i)
+        count = sum(1 for r in reviews if r.reviewed_at.date() == d)
+        daily.append({"date": d.isoformat(), "count": count})
+
+    # Review streak: consecutive days (ending today) with >= 1 review.
+    review_days = {r.reviewed_at.date() for r in reviews}
+    streak = 0
+    cursor = today
+    while cursor in review_days:
+        streak += 1
+        cursor -= timedelta(days=1)
+
+    return {
+        "total": total,
+        "due": due,
+        "mastered": mastered,
+        "total_reviews": total_reviews,
+        "retention_rate": retention,
+        "review_streak": streak,
+        "daily_reviews": daily,
+    }
+
+
 @router.post("/flashcards/{card_id}/review", status_code=204)
 def review_flashcard(
     card_id: uuid.UUID,
@@ -494,6 +577,11 @@ def review_flashcard(
             1.3, card.ease + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02))
         )
     card.next_review = datetime.now(timezone.utc) + timedelta(days=card.interval_days)
+
+    # Log the review for retention/streak analytics.
+    db.add(
+        FlashcardReviewLog(user_id=current.id, card_id=card.id, quality=q)
+    )
 
     quality_label = {0: "Again", 1: "Again", 2: "Hard", 3: "Good", 4: "Good", 5: "Easy"}.get(q, "Good")
     engagement.log_activity(
