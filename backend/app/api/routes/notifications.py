@@ -3,6 +3,7 @@ import uuid
 from fastapi import APIRouter, HTTPException, Query
 
 from app.api.deps import CurrentUser, DbDep
+from app.api.query_params import parse_bool_query
 from app.schemas.engagement import (
     ActivityList,
     MarkAllReadResponse,
@@ -18,14 +19,14 @@ def list_notifications(
     current: CurrentUser,
     db: DbDep,
     category: str | None = Query(default=None),
-    unread_only: bool = Query(default=False),
+    unread_only: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=100),
 ):
     rows = engagement.list_notifications(
         db,
         current.id,
-        category=category,
-        unread_only=unread_only,
+        category=category if category not in (None, "", "undefined", "all") else None,
+        unread_only=parse_bool_query(unread_only),
         limit=limit,
     )
     return {

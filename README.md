@@ -101,16 +101,27 @@ JWT_SECRET=$(openssl rand -hex 32)
 
 > Without a key the app still runs in **demo mode** with stubbed AI responses.
 
-### 2. Boot Postgres + backend with Docker Compose
+### 2. One-command Docker (frontend + backend + Postgres)
 
 ```bash
-docker compose up -d postgres
-docker compose up backend
+docker compose up --build
 ```
 
-The API is now at **http://localhost:8000** (docs at `/docs`).
+Or detached + automated smoke tests (Windows PowerShell):
 
-### 3. Run frontend
+```powershell
+.\scripts\docker-up.ps1
+```
+
+| Service   | URL                          |
+| --------- | ---------------------------- |
+| Frontend  | http://localhost:3000        |
+| Backend   | http://localhost:8000        |
+| API docs  | http://localhost:8000/docs   |
+
+Stop everything: `docker compose down`
+
+### 3. Run frontend locally (optional, without Docker)
 
 ```bash
 cd frontend

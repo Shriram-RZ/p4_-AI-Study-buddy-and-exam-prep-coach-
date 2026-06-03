@@ -7,6 +7,7 @@ from pypdf import PdfReader
 from sqlalchemy import func, select
 
 from app.api.deps import CurrentUser, DbDep
+from app.api.query_params import parse_bool_query
 from app.models.study import (
     Flashcard,
     FlashcardReview as FlashcardReviewLog,
@@ -107,10 +108,13 @@ async def create_plan(
 
 @router.get("/plans")
 def list_plans(
-    current: CurrentUser, db: DbDep, include_archived: bool = False
+    current: CurrentUser,
+    db: DbDep,
+    include_archived: str | None = Query(default=None),
 ):
+    include = parse_bool_query(include_archived)
     stmt = select(StudyPlan).where(StudyPlan.user_id == current.id)
-    if not include_archived:
+    if not include:
         stmt = stmt.where(StudyPlan.archived.is_(False))
     plans = db.scalars(stmt.order_by(StudyPlan.created_at.desc())).all()
     return {"plans": [_plan_dict(p) for p in plans]}
@@ -311,6 +315,7 @@ async def generate_quiz(
                     "options": q.options,
                     "correct_answer": q.correct_answer,
                     "explanation": q.explanation,
+                    "topic_tag": q.topic_tag,
                 }
                 for q in sorted(questions, key=lambda x: x.position)
             ],

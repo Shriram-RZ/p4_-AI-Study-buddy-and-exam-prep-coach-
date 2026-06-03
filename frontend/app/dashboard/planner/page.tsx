@@ -56,7 +56,8 @@ export default function PlannerPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
 
-  const { data: plans = [] } = usePlans(showArchived);
+  const { data: plans = [], isError: plansError, refetch: refetchPlans } =
+    usePlans(showArchived);
   const createPlan = useCreatePlan();
   const updatePlan = useUpdatePlan();
   const duplicatePlan = useDuplicatePlan();
@@ -261,6 +262,18 @@ export default function PlannerPage() {
           </Card>
 
           <div className="lg:col-span-3">
+            {plansError && (
+              <div className="mb-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-700 dark:text-rose-300">
+                Could not load your saved plans.{" "}
+                <button
+                  type="button"
+                  onClick={() => refetchPlans()}
+                  className="font-medium underline"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
             <div className="mb-3 flex flex-wrap items-center gap-2">
               {plans.map((p) => (
                 <button

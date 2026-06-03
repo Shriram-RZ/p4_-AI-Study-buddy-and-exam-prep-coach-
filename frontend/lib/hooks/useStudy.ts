@@ -26,10 +26,21 @@ export function useAnalytics() {
 
 /** Cached list of the user's saved study plans. Cached so navigating away and
  *  back to the planner is instant and the data survives the tab switch. */
-export function usePlans() {
+export function usePlans(includeArchived = false) {
   return useQuery({
-    queryKey: studyKeys.plans,
-    queryFn: () => studyApi.listPlans(),
+    queryKey: [...studyKeys.plans, includeArchived],
+    queryFn: () => studyApi.listPlans(includeArchived),
+    retry: (failureCount, error) => {
+      if (
+        error &&
+        typeof error === "object" &&
+        "response" in error &&
+        (error as { response?: { status?: number } }).response?.status === 422
+      ) {
+        return false;
+      }
+      return failureCount < 1;
+    },
   });
 }
 

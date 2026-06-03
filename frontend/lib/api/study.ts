@@ -1,4 +1,5 @@
 import { api } from "./client";
+import { cleanParams } from "./params";
 import type {
   StudyPlan,
   Quiz,
@@ -28,7 +29,9 @@ export const studyApi = {
   },
   listPlans: async (includeArchived = false) => {
     const r = await api.get<{ plans: StudyPlan[] }>("/api/study/plans", {
-      params: { include_archived: includeArchived || undefined },
+      params: cleanParams(
+        includeArchived ? { include_archived: true } : {}
+      ),
     });
     return r.data.plans;
   },

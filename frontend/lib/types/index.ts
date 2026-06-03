@@ -49,6 +49,7 @@ export interface Question {
   options?: string[];
   correct_answer: string | number;
   explanation: string;
+  topic_tag?: string | null;
 }
 
 export interface Flashcard {

@@ -1,4 +1,5 @@
 import { api } from "./client";
+import { cleanParams } from "./params";
 import type { AppNotification, ActivityItem } from "@/lib/types";
 
 export const notificationsApi = {
@@ -7,10 +8,11 @@ export const notificationsApi = {
       notifications: AppNotification[];
       unread_count: number;
     }>("/api/notifications", {
-      params: {
-        category: opts?.category && opts.category !== "all" ? opts.category : undefined,
-        unread_only: opts?.unreadOnly || undefined,
-      },
+      params: cleanParams({
+        category:
+          opts?.category && opts.category !== "all" ? opts.category : undefined,
+        unread_only: opts?.unreadOnly ? true : undefined,
+      }),
     });
     return r.data;
   },
